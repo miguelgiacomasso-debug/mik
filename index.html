@@ -466,36 +466,37 @@ window.importarBackupOnline = async function(input){
       const totalP = (data.proveedores||[]).length;
       const totalCo = (data.compras||[]).length;
       const totalM = (data.movimientos||[]).length;
-      if(!confirm('Backup del '+(data.fecha?new Date(data.fecha).toLocaleDateString('es-AR'):'?')+'\n\nContenido:\n- '+totalR+' remitos\n- '+totalC+' clientes\n- '+totalP+' proveedores\n- '+totalCo+' compras\n- '+totalM+' movimientos\n\n¿Subir TODO a Firebase?')) return;
+      if(!confirm('Backup del '+(data.fecha?new Date(data.fecha).toLocaleDateString('es-AR'):'?')+'\n\nContenido:\n- '+totalR+' remitos\n- '+totalC+' clientes\n- '+totalP+' proveedores\n- '+totalCo+' compras\n- '+totalM+' movimientos\n\n¿Subir TODO a Firebase? Los IDs originales se van a preservar para que la cuenta corriente funcione correctamente.')) return;
       setSyncStatus(true);
       let count = 0;
-      for(const r of (data.remitos||[])){
-        const {id, ...rest} = r;
-        await addDoc(collection(db,'remitos'), {...rest, importado:true});
-        count++;
-      }
+      // Usar setDoc con el ID original para preservar relaciones cliente-remito
       for(const c of (data.clientes||[])){
         const {id, ...rest} = c;
-        await addDoc(collection(db,'clientes'), rest);
+        await setDoc(doc(db,'clientes',id), rest);
+        count++;
+      }
+      for(const r of (data.remitos||[])){
+        const {id, ...rest} = r;
+        await setDoc(doc(db,'remitos',id), {...rest, importado:true});
         count++;
       }
       for(const p of (data.proveedores||[])){
         const {id, ...rest} = p;
-        await addDoc(collection(db,'proveedores'), rest);
+        await setDoc(doc(db,'proveedores',id), rest);
         count++;
       }
       for(const co of (data.compras||[])){
         const {id, ...rest} = co;
-        await addDoc(collection(db,'compras'), {...rest, importado:true});
+        await setDoc(doc(db,'compras',id), {...rest, importado:true});
         count++;
       }
       for(const m of (data.movimientos||[])){
         const {id, ...rest} = m;
-        await addDoc(collection(db,'movimientos'), rest);
+        await setDoc(doc(db,'movimientos',id), rest);
         count++;
       }
       setSyncStatus(false);
-      alert('✔ Backup importado correctamente. '+count+' registros subidos a Firebase.');
+      alert('✔ Backup importado correctamente. '+count+' registros subidos a Firebase. Las cuentas corrientes van a funcionar bien.');
     } catch(err) {
       setSyncStatus(false);
       alert('Error al importar: '+err.message);
@@ -777,9 +778,13 @@ function actualizarBadges(){
 
 // CUENTA CORRIENTE
 function saldoCliente(cliId){
+  // Match by Firebase ID OR by original backup ID stored inside remito.cliente.id
+  const cli = clientes.find(c=>c.id==cliId);
+  if(!cli) return 0;
   let saldo=0;
-  remitos.filter(r=>r.cliente.id==cliId).forEach(r=>{ saldo+=r.total; saldo-=(r.pagado||0); });
-  movimientos.filter(m=>m.cliId==cliId).forEach(m=>{ saldo-=m.monto; });
+  // Match remitos by Firebase doc ID, OR by matching client name (for imported backups)
+  remitos.filter(r=> r.cliente.id==cliId || r.cliente.nombre==cli.nombre).forEach(r=>{ saldo+=r.total; saldo-=(r.pagado||0); });
+  movimientos.filter(m=>m.cliId==cliId || m.cliNombre==cli.nombre).forEach(m=>{ saldo-=m.monto; });
   return saldo;
 }
 
@@ -798,8 +803,8 @@ window.renderCC = function(){
   const cli=clientes.find(c=>c.id==cliId);
   const saldo=saldoCliente(cliId);
   let movs=[];
-  remitos.filter(r=>r.cliente.id==cliId).forEach(r=>{ movs.push({fecha:r.fecha,tipo:'remito',desc:'Remito N° '+r.numero,cargo:r.total,abono:r.pagado||0,id:r.id}); });
-  movimientos.filter(m=>m.cliId==cliId).forEach(m=>{ movs.push({fecha:m.fecha,tipo:'pago',desc:m.desc||'Pago en cuenta',cargo:0,abono:m.monto,id:m.id}); });
+  remitos.filter(r=>r.cliente.id==cliId || r.cliente.nombre==cli.nombre).forEach(r=>{ movs.push({fecha:r.fecha,tipo:'remito',desc:'Remito N° '+r.numero,cargo:r.total,abono:r.pagado||0,id:r.id}); });
+  movimientos.filter(m=>m.cliId==cliId || m.cliNombre==cli.nombre).forEach(m=>{ movs.push({fecha:m.fecha,tipo:'pago',desc:m.desc||'Pago en cuenta',cargo:0,abono:m.monto,id:m.id}); });
   movs.sort((a,b)=>a.fecha.localeCompare(b.fecha));
   let acum=0;
   const rows=movs.map(m=>{ acum+=m.cargo-m.abono;
@@ -839,7 +844,8 @@ window.registrarPagoCC = async function(cliId){
   const fecha=document.getElementById('cc-fecha').value;
   const desc=document.getElementById('cc-desc').value.trim()||'Pago en cuenta';
   setSyncStatus(true);
-  await addDoc(collection(db,'movimientos'),{cliId,monto,fecha,desc,creadoPor:usuarioActual});
+  const cliNombre = clientes.find(c=>c.id==cliId)?.nombre||'';
+  await addDoc(collection(db,'movimientos'),{cliId,cliNombre,monto,fecha,desc,creadoPor:usuarioActual});
   setSyncStatus(false);
   document.getElementById('cc-monto').value='';
   document.getElementById('cc-desc').value='';
