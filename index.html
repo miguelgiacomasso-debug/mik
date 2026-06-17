@@ -71,6 +71,11 @@ tr:last-child td { border-bottom:none; }
 .login-box h1 { font-size:24px; margin-bottom:4px; }
 .login-box .sub { font-size:13px; color:#888; margin-bottom:2rem; }
 .login-input { margin-bottom:12px; text-align:left; }
+@media print {
+  body > *:not(#mik-print-div) { display:none !important; }
+  #mik-print-div { position:static !important; padding:0 !important; }
+  #mik-print-div button { display:none !important; }
+}
 </style>
 </head>
 <body>
@@ -736,7 +741,7 @@ function renderHistorial(){
             ${reg.pagado>0&&reg.pagado<reg.total?`<div style="font-size:12px;color:#888">Cobrado: ${fmt(reg.pagado)}</div>`:''}
             ${reg.utilidad!=null?`<div style="font-size:12px;color:#1a7f37">Utilidad: ${fmt(reg.utilidad)}</div>`:''}
             <div style="display:flex;gap:4px;justify-content:flex-end;margin-top:4px">
-              <button class="btn btn-sm" onclick='imprimirRemito(remitos.find(x=>x.id=="${reg.id}"))'>🖨</button>
+              <button class="btn btn-sm" onclick="imprimirRemito('${reg.id}')">🖨</button>
               <button class="btn btn-danger btn-sm" onclick="eliminarRemito('${reg.id}')">🗑</button>
             </div>
           </div>
@@ -1000,7 +1005,8 @@ window.eliminarProveedor = async function(id){
 };
 
 // IMPRIMIR
-window.imprimirRemito = function(r){
+window.imprimirRemito = function(idOrObj){
+  const r = (idOrObj && typeof idOrObj==='object') ? idOrObj : remitos.find(x=>x.id==idOrObj);
   if(!r) return;
   const fecha=new Date(r.fecha+'T12:00').toLocaleDateString('es-AR');
   const pendiente=r.total-(r.pagado||0);
