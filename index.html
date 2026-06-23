@@ -828,6 +828,7 @@ window.renderCC = function(){
       <div><div style="font-size:16px;font-weight:700">${cli.nombre}</div>${cli.tel?`<div style="font-size:12px;color:#888">📞 ${cli.tel}</div>`:''}</div>
       <div style="text-align:right"><div class="label">Saldo actual</div>
         <div style="font-size:22px" class="${saldo>0?'cc-saldo-negativo':saldo<0?'cc-saldo-positivo':''}">${saldo===0?'✔ Al día':saldo>0?'Debe '+fmt(saldo):'Saldo a favor '+fmt(Math.abs(saldo))}</div>
+        <button class="btn btn-sm" style="margin-top:8px" onclick="imprimirEstadoCuenta('${cliId}')">🖨 Imprimir / Guardar estado</button>
       </div>
     </div>
     ${movs.length?`<div class="card" style="margin-bottom:1rem;padding:0;overflow:hidden"><table>
@@ -1050,6 +1051,67 @@ window.imprimirRemito = function(idOrObj){
     +'<div style="border-top:1px solid #000;padding-top:8px;text-align:center;font-size:11px;color:#666">Firma y aclaración cliente</div>'
     +'<div style="border-top:1px solid #000;padding-top:8px;text-align:center;font-size:11px;color:#666">Firma MIK</div>'
     +'</div></div>';
+  document.body.appendChild(d);
+};
+
+
+window.imprimirEstadoCuenta = function(cliId){
+  const cli = clientes.find(c=>c.id==cliId);
+  if(!cli) return;
+  const saldo = saldoCliente(cliId);
+  let movs=[];
+  remitos.filter(r=>r.cliente.id==cliId || r.cliente.nombre==cli.nombre).forEach(r=>{ movs.push({fecha:r.fecha,tipo:'remito',desc:'Remito N° '+r.numero,cargo:r.total,abono:r.pagado||0,id:r.id}); });
+  movimientos.filter(m=>m.cliId==cliId || m.cliNombre==cli.nombre).forEach(m=>{ movs.push({fecha:m.fecha,tipo:'pago',desc:m.desc||'Pago en cuenta',cargo:0,abono:m.monto,id:m.id}); });
+  movs.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  let acum=0;
+  const rows = movs.map(m=>{ acum+=m.cargo-m.abono;
+    const sc = acum>0?'#c0392b':acum<0?'#1a7f37':'#888';
+    const verBtn = m.tipo==='remito' ? '<button onclick="imprimirRemito(\''+m.id+'\')" style="padding:3px 10px;background:#1a7f37;color:#fff;border:none;border-radius:5px;cursor:pointer;font-size:11px">Ver</button>' : '';
+    return '<tr>'
+      +'<td style="padding:6px 8px;font-size:12px;color:#666;border-bottom:1px solid #eee">'+new Date(m.fecha+'T12:00').toLocaleDateString('es-AR')+'</td>'
+      +'<td style="padding:6px 8px;border-bottom:1px solid #eee">'+(m.tipo==='remito'?'📄':'💵')+' '+m.desc+'</td>'
+      +'<td style="padding:6px 8px;text-align:right;color:#c0392b;border-bottom:1px solid #eee">'+(m.cargo>0?fmt(m.cargo):'')+'</td>'
+      +'<td style="padding:6px 8px;text-align:right;color:#1a7f37;border-bottom:1px solid #eee">'+(m.abono>0?fmt(m.abono):'')+'</td>'
+      +'<td style="padding:6px 8px;text-align:right;font-weight:bold;color:'+sc+';border-bottom:1px solid #eee">'+fmt(Math.abs(acum))+' '+(acum>0?'D':acum<0?'A':'')+'</td>'
+      +'<td style="padding:6px 8px;text-align:center;border-bottom:1px solid #eee">'+verBtn+'</td>'
+      +'</tr>';
+  }).join('');
+  let old = document.getElementById('mik-print-div');
+  if(old) old.remove();
+  const d = document.createElement('div');
+  d.id = 'mik-print-div';
+  d.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:9999;padding:30px;overflow:auto;';
+  const hoy = new Date().toLocaleDateString('es-AR');
+  d.innerHTML = '<div style="max-width:760px;margin:0 auto">'
+    +'<div style="margin-bottom:16px;display:flex;gap:8px">'
+    +'<button onclick="document.getElementById(\'mik-print-div\').remove()" style="padding:7px 16px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">✕ Cerrar</button>'
+    +'<button onclick="window.print()" style="padding:7px 16px;background:#1a7f37;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨 Imprimir / Guardar PDF</button>'
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:16px">'
+    +'<div><div style="font-size:22px;font-weight:bold">MIK</div><div style="font-size:11px;color:#666">Fábrica de Karting de Competición</div></div>'
+    +'<div style="text-align:right"><div style="font-size:18px;font-weight:bold">ESTADO DE CUENTA</div><div style="font-size:11px;color:#666">'+hoy+'</div></div>'
+    +'</div>'
+    +'<div style="margin-bottom:16px">'
+    +'<div style="font-size:10px;color:#999;text-transform:uppercase">Cliente</div>'
+    +'<div style="font-size:16px;font-weight:bold">'+cli.nombre+'</div>'
+    +(cli.cuit ? '<div style="font-size:11px">CUIT/DNI: '+cli.cuit+'</div>' : '')
+    +(cli.tel ? '<div style="font-size:11px">Tel: '+cli.tel+'</div>' : '')
+    +'</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:16px">'
+    +'<thead><tr style="background:#f5f5f5">'
+    +'<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">Fecha</th>'
+    +'<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">Concepto</th>'
+    +'<th style="padding:6px 8px;text-align:right;border-bottom:1px solid #ddd">Cargo</th>'
+    +'<th style="padding:6px 8px;text-align:right;border-bottom:1px solid #ddd">Abono</th>'
+    +'<th style="padding:6px 8px;text-align:right;border-bottom:1px solid #ddd">Saldo</th>'
+    +'<th style="padding:6px 8px;text-align:center;border-bottom:1px solid #ddd"></th>'
+    +'</tr></thead><tbody>'+(rows||'<tr><td colspan="6" style="padding:12px;text-align:center;color:#999">Sin movimientos</td></tr>')+'</tbody></table>'
+    +'<div style="text-align:right;border-top:2px solid #000;padding-top:12px">'
+    +'<span style="color:#666;margin-right:12px">SALDO ACTUAL</span>'
+    +'<span style="font-size:20px;font-weight:bold;color:'+(saldo>0?'#c0392b':saldo<0?'#1a7f37':'#000')+'">'+(saldo===0?'Al día':saldo>0?'Debe '+fmt(saldo):'A favor '+fmt(Math.abs(saldo)))+'</span>'
+    +'</div>'
+    +'<div style="margin-top:8px;font-size:10px;color:#999;text-align:right">D = debe · A = a favor</div>'
+    +'</div>';
   document.body.appendChild(d);
 };
 
