@@ -121,6 +121,7 @@ tr:last-child td { border-bottom:none; }
     <button class="tab" onclick="showTab('stats')">📊 Estadísticas</button>
     <button class="tab" onclick="showTab('clientes')">👥 Clientes (<span id="badge-clientes">0</span>)</button>
     <button class="tab" onclick="showTab('proveedores')">🏭 Proveedores (<span id="badge-proveedores">0</span>)</button>
+    <button class="tab" onclick="showTab('productos')">🏷️ Productos</button>
   </div>
 
   <!-- NUEVO REMITO -->
@@ -341,6 +342,34 @@ tr:last-child td { border-bottom:none; }
     </div>
     <div id="lista-proveedores"><div class="empty">Cargando...</div></div>
   </div>
+
+  <div id="tab-productos" style="display:none">
+    <div class="card">
+      <div class="sec">Agregar / editar producto</div>
+      <input type="hidden" id="pm-idx" value="-1">
+      <div class="grid2" style="margin-bottom:8px">
+        <div><div class="label">Nombre del producto</div><input type="text" id="pm-nombre" placeholder="Ej: Columna de dirección 20mm"></div>
+        <div><div class="label">Costo MIK ($)</div><input type="number" id="pm-costo" placeholder="Ej: 17587"></div>
+      </div>
+      <div class="grid2" style="margin-bottom:12px">
+        <div><div class="label">Precio venta público ($)</div><input type="number" id="pm-venta" placeholder="Ej: 58000" oninput="document.getElementById('pm-reventa').value=(Math.round((parseInt(this.value)||0)*0.75)).toLocaleString('es-AR')"></div>
+        <div><div class="label">Reventa (automático −25%)</div><input type="text" id="pm-reventa" disabled placeholder="se calcula solo" style="background:#f5f5f5"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-primary" onclick="guardarProducto()">Guardar producto</button>
+        <button class="btn" onclick="limpiarFormProducto()">Limpiar</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem">
+      <div class="sec">Carga masiva (pegar lista)</div>
+      <div class="hint" style="margin-bottom:8px">Una línea por producto con: <b>Nombre ; Costo ; Precio venta</b>. También sirve pegar 3 columnas desde Excel. Los productos con el mismo nombre se actualizan; los nuevos se agregan.</div>
+      <textarea id="pm-bulk" rows="6" style="width:100%;font-family:monospace;font-size:12px" placeholder="COLUMNA DE DIRECCION 20mm ; 17587 ; 58000&#10;BUTACA FIBRA ; 45000 ; 85000"></textarea>
+      <div style="margin-top:8px"><button class="btn btn-primary" onclick="cargaMasivaProductos()">Cargar lista</button></div>
+    </div>
+
+    <div id="lista-productos"><div class="empty">Cargando...</div></div>
+  </div>
 </div>
 </div>
 
@@ -442,16 +471,17 @@ const PRODS = [
   {n:"KARTUP",p:220000,c:84532},{n:"PEDALERA POSTIZA GRANDE",p:135000,c:58348}
 ];
 
-let clientes=[], remitos=[], proveedores=[], compras=[], movimientos=[];
+let clientes=[], remitos=[], proveedores=[], compras=[], movimientos=[], productos=[];
 let items=[], itemsCompra=[], editandoRemitoId=null, tabActual='nuevo', tabPrev='nuevo';
 
 const fmt = n=>'$'+Math.round(n).toLocaleString('es-AR');
 const pct = n=>Math.round(n*100)+'%';
 const mesKey = f=>f.substring(0,7);
 const mesLabel = k=>{ const [y,m]=k.split('-'); return ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][parseInt(m)-1]+' '+y; };
-const getCosto = it=>{ if(it.esLibre) return it.costo||0; const p=PRODS.find(x=>x.n===it.prod); return p?p.c:0; };
+const getProds = ()=> (productos && productos.length) ? productos : PRODS;
+const getCosto = it=>{ if(it.esLibre) return it.costo||0; const p=getProds().find(x=>x.n===it.prod); return p?p.c:0; };
 const getUtil = it=>{ const c=getCosto(it); if(!c) return null; return (it.precio-c)*it.qty; };
-const getPrecioBase = (n,t)=>{ const p=PRODS.find(x=>x.n===n); if(!p) return 0; return t==='reventa'?Math.round(p.p*.75):p.p; };
+const getPrecioBase = (n,t)=>{ const p=getProds().find(x=>x.n===n); if(!p) return 0; return t==='reventa'?Math.round(p.p*.75):p.p; };
 
 function setSyncStatus(loading){
   const el=document.getElementById('sync-status');
@@ -517,8 +547,7 @@ async function iniciarApp(){
   document.getElementById('fecha-hoy').textContent=hoy.toLocaleDateString('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
   document.getElementById('inp-fecha').value=hoy.toISOString().split('T')[0];
   document.getElementById('compra-fecha').value=hoy.toISOString().split('T')[0];
-  const sel=document.getElementById('sel-producto');
-  PRODS.forEach(p=>{ const o=document.createElement('option'); o.value=p.n; o.textContent=p.n; sel.appendChild(o); });
+  poblarSelectProductos();
 
   // Escuchar cambios en tiempo real
   onSnapshot(collection(db,'clientes'), snap=>{ clientes=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); actualizarBadges(); });
@@ -526,19 +555,24 @@ async function iniciarApp(){
   onSnapshot(collection(db,'proveedores'), snap=>{ proveedores=snap.docs.map(d=>({id:d.id,...d.data()})); renderProveedores(); actualizarBadges(); });
   onSnapshot(query(collection(db,'compras'),orderBy('fecha','desc')), snap=>{ compras=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); });
   onSnapshot(collection(db,'movimientos'), snap=>{ movimientos=snap.docs.map(d=>({id:d.id,...d.data()})); });
+  onSnapshot(doc(db,'config','productos'), snap=>{
+    if(snap.exists()){ productos=(snap.data().lista)||[]; poblarSelectProductos(); if(tabActual==='productos') renderProductos(); }
+    else { setDoc(doc(db,'config','productos'),{lista:PRODS}); }
+  });
 }
 
 window.showTab = function(t){
   if(t!==tabActual){ tabPrev=tabActual; tabActual=t; }
-  ['nuevo','compra','historial','cuentas','stats','clientes','proveedores'].forEach((id,i)=>{
+  ['nuevo','compra','historial','cuentas','stats','clientes','proveedores','productos'].forEach((id,i)=>{
     document.getElementById('tab-'+id).style.display='none';
     document.querySelectorAll('.tab')[i].classList.remove('active');
   });
   document.getElementById('tab-'+t).style.display='block';
-  document.querySelectorAll('.tab')[['nuevo','compra','historial','cuentas','stats','clientes','proveedores'].indexOf(t)].classList.add('active');
+  document.querySelectorAll('.tab')[['nuevo','compra','historial','cuentas','stats','clientes','proveedores','productos'].indexOf(t)].classList.add('active');
   if(t==='stats'){ poblarMeses(); renderStats(); }
   if(t==='historial') renderHistorial();
   if(t==='cuentas') renderCCSelector();
+  if(t==='productos') renderProductos();
 };
 
 window.toggleModo = function(){
@@ -1171,6 +1205,121 @@ window.cancelarEdicion = function(){
 };
 
 window.navVolver = function(){ showTab(tabPrev || 'nuevo'); };
+
+
+function poblarSelectProductos(){
+  const sel=document.getElementById('sel-producto');
+  if(!sel) return;
+  const actual=sel.value;
+  sel.innerHTML='<option value="">— Seleccionar —</option>';
+  getProds().slice().sort((a,b)=>a.n.localeCompare(b.n)).forEach(p=>{ const o=document.createElement('option'); o.value=p.n; o.textContent=p.n; sel.appendChild(o); });
+  if(actual) sel.value=actual;
+}
+
+async function persistProductos(){
+  setSyncStatus(true);
+  try { await setDoc(doc(db,'config','productos'),{lista:productos}); }
+  catch(e){ alert('Error al guardar productos: '+e.message); }
+  setSyncStatus(false);
+}
+
+function asegurarProductos(){ if(productos.length===0 && PRODS.length) productos=JSON.parse(JSON.stringify(PRODS)); }
+
+window.limpiarFormProducto = function(){
+  document.getElementById('pm-idx').value='-1';
+  document.getElementById('pm-nombre').value='';
+  document.getElementById('pm-costo').value='';
+  document.getElementById('pm-venta').value='';
+  document.getElementById('pm-reventa').value='';
+};
+
+window.guardarProducto = async function(){
+  const nombre=document.getElementById('pm-nombre').value.trim();
+  const costo=parseInt(document.getElementById('pm-costo').value)||0;
+  const venta=parseInt(document.getElementById('pm-venta').value)||0;
+  const idx=parseInt(document.getElementById('pm-idx').value);
+  if(!nombre){ alert('Escribí el nombre del producto.'); return; }
+  if(venta<=0){ alert('Ingresá un precio de venta válido.'); return; }
+  asegurarProductos();
+  if(idx>=0){
+    productos[idx]={n:nombre,p:venta,c:costo};
+  } else {
+    const ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
+    if(ya>=0){ if(!confirm('Ya existe "'+nombre+'". ¿Actualizar su precio?')) return; productos[ya]={n:nombre,p:venta,c:costo}; }
+    else productos.push({n:nombre,p:venta,c:costo});
+  }
+  await persistProductos();
+  limpiarFormProducto();
+  renderProductos();
+};
+
+window.editarProductoUI = function(i){
+  asegurarProductos();
+  const p=productos[i]; if(!p) return;
+  document.getElementById('pm-idx').value=i;
+  document.getElementById('pm-nombre').value=p.n;
+  document.getElementById('pm-costo').value=p.c||0;
+  document.getElementById('pm-venta').value=p.p||0;
+  document.getElementById('pm-reventa').value=Math.round((p.p||0)*0.75).toLocaleString('es-AR');
+  window.scrollTo(0,0);
+};
+
+window.eliminarProducto = async function(i){
+  asegurarProductos();
+  const p=productos[i]; if(!p) return;
+  if(!confirm('¿Borrar "'+p.n+'" de la lista?')) return;
+  productos.splice(i,1);
+  await persistProductos();
+  renderProductos();
+};
+
+window.cargaMasivaProductos = async function(){
+  const txt=document.getElementById('pm-bulk').value.trim();
+  if(!txt){ alert('Pegá la lista primero.'); return; }
+  asegurarProductos();
+  const lineas=txt.split('\n').map(l=>l.trim()).filter(l=>l);
+  let nuevos=0, actualizados=0, errores=0;
+  lineas.forEach(linea=>{
+    let partes;
+    if(linea.indexOf('\t')>=0) partes=linea.split('\t');
+    else if(linea.indexOf(';')>=0) partes=linea.split(';');
+    else partes=linea.split(',');
+    if(partes.length<3){ errores++; return; }
+    const nombre=partes[0].trim();
+    const costo=parseInt(String(partes[1]).replace(/[^0-9]/g,''))||0;
+    const venta=parseInt(String(partes[2]).replace(/[^0-9]/g,''))||0;
+    if(!nombre || venta<=0){ errores++; return; }
+    const ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
+    if(ya>=0){ productos[ya]={n:nombre,p:venta,c:costo}; actualizados++; }
+    else { productos.push({n:nombre,p:venta,c:costo}); nuevos++; }
+  });
+  await persistProductos();
+  document.getElementById('pm-bulk').value='';
+  renderProductos();
+  alert('Listo: '+nuevos+' agregados, '+actualizados+' actualizados'+(errores?', '+errores+' líneas ignoradas (revisá el formato)':'')+'.');
+};
+
+function renderProductos(){
+  const wrap=document.getElementById('lista-productos');
+  if(!wrap) return;
+  const base = (productos && productos.length) ? productos : PRODS;
+  if(!base.length){ wrap.innerHTML='<div class="empty">No hay productos cargados.</div>'; return; }
+  const conIdx = base.map((p,i)=>({p,i})).sort((a,b)=>a.p.n.localeCompare(b.p.n));
+  wrap.innerHTML='<div style="margin-bottom:8px;color:#888;font-size:13px">'+base.length+' productos</div>'
+    +'<table><thead><tr><th>Producto</th><th>Costo</th><th>Venta</th><th>Reventa</th><th>Margen</th><th></th></tr></thead><tbody>'
+    +conIdx.map(({p,i})=>{
+      const rev=Math.round((p.p||0)*0.75);
+      const margen=(p.c&&p.p)?Math.round((1-p.c/p.p)*100):null;
+      return '<tr>'
+        +'<td>'+p.n+'</td>'
+        +'<td>'+(p.c?fmt(p.c):'—')+'</td>'
+        +'<td style="font-weight:700">'+fmt(p.p)+'</td>'
+        +'<td style="color:#888">'+fmt(rev)+'</td>'
+        +'<td>'+(margen!=null?'<span style="color:#1a7f37">'+margen+'%</span>':'—')+'</td>'
+        +'<td style="white-space:nowrap"><button class="btn btn-sm" onclick="editarProductoUI('+i+')">✏️</button> <button class="btn btn-danger btn-sm" onclick="eliminarProducto('+i+')">🗑</button></td>'
+        +'</tr>';
+    }).join('')+'</tbody></table>';
+}
 
 </script>
 </body>
