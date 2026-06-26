@@ -351,9 +351,10 @@ tr:last-child td { border-bottom:none; }
         <div><div class="label">Nombre del producto</div><input type="text" id="pm-nombre" placeholder="Ej: Columna de dirección 20mm"></div>
         <div><div class="label">Costo MIK ($)</div><input type="number" id="pm-costo" placeholder="Ej: 17587"></div>
       </div>
-      <div class="grid2" style="margin-bottom:12px">
-        <div><div class="label">Precio venta público ($)</div><input type="number" id="pm-venta" placeholder="Ej: 58000" oninput="document.getElementById('pm-reventa').value=(Math.round((parseInt(this.value)||0)*0.75)).toLocaleString('es-AR')"></div>
-        <div><div class="label">Reventa (automático −25%)</div><input type="text" id="pm-reventa" disabled placeholder="se calcula solo" style="background:#f5f5f5"></div>
+      <div class="grid3" style="margin-bottom:12px">
+        <div><div class="label">Precio venta público ($)</div><input type="number" id="pm-venta" placeholder="Ej: 58000" oninput="actualizarPreviewReventa()"></div>
+        <div><div class="label">Descuento reventa %</div><input type="number" id="pm-desc" value="25" oninput="actualizarPreviewReventa()"></div>
+        <div><div class="label">Reventa (calculado)</div><input type="text" id="pm-reventa" disabled placeholder="se calcula solo" style="background:#f5f5f5"></div>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="guardarProducto()">Guardar producto</button>
@@ -368,6 +369,7 @@ tr:last-child td { border-bottom:none; }
       <div style="margin-top:8px"><button class="btn btn-primary" onclick="cargaMasivaProductos()">Cargar lista</button></div>
     </div>
 
+    <div style="margin-bottom:10px"><button class="btn btn-primary" onclick="imprimirListaPrecios()">📄 Lista de precios para clientes</button></div>
     <div id="lista-productos"><div class="empty">Cargando...</div></div>
   </div>
 </div>
@@ -481,7 +483,9 @@ const mesLabel = k=>{ const [y,m]=k.split('-'); return ['Enero','Febrero','Marzo
 const getProds = ()=> (productos && productos.length) ? productos : PRODS;
 const getCosto = it=>{ if(it.esLibre) return it.costo||0; const p=getProds().find(x=>x.n===it.prod); return p?p.c:0; };
 const getUtil = it=>{ const c=getCosto(it); if(!c) return null; return (it.precio-c)*it.qty; };
-const getPrecioBase = (n,t)=>{ const p=getProds().find(x=>x.n===n); if(!p) return 0; return t==='reventa'?Math.round(p.p*.75):p.p; };
+const revPct = p => (p && p.rev!=null) ? p.rev : 0.25;
+const precioReventa = p => Math.round((p.p||0)*(1-revPct(p)));
+const getPrecioBase = (n,t)=>{ const p=getProds().find(x=>x.n===n); if(!p) return 0; return t==='reventa'?precioReventa(p):p.p; };
 
 function setSyncStatus(loading){
   const el=document.getElementById('sync-status');
@@ -1230,6 +1234,7 @@ window.limpiarFormProducto = function(){
   document.getElementById('pm-nombre').value='';
   document.getElementById('pm-costo').value='';
   document.getElementById('pm-venta').value='';
+  document.getElementById('pm-desc').value='25';
   document.getElementById('pm-reventa').value='';
 };
 
@@ -1237,16 +1242,18 @@ window.guardarProducto = async function(){
   const nombre=document.getElementById('pm-nombre').value.trim();
   const costo=parseInt(document.getElementById('pm-costo').value)||0;
   const venta=parseInt(document.getElementById('pm-venta').value)||0;
+  const descV=parseFloat(document.getElementById('pm-desc').value);
+  const rev=(!isNaN(descV)?descV:25)/100;
   const idx=parseInt(document.getElementById('pm-idx').value);
   if(!nombre){ alert('Escribí el nombre del producto.'); return; }
   if(venta<=0){ alert('Ingresá un precio de venta válido.'); return; }
   asegurarProductos();
   if(idx>=0){
-    productos[idx]={n:nombre,p:venta,c:costo};
+    productos[idx]={n:nombre,p:venta,c:costo,rev};
   } else {
     const ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
-    if(ya>=0){ if(!confirm('Ya existe "'+nombre+'". ¿Actualizar su precio?')) return; productos[ya]={n:nombre,p:venta,c:costo}; }
-    else productos.push({n:nombre,p:venta,c:costo});
+    if(ya>=0){ if(!confirm('Ya existe "'+nombre+'". ¿Actualizar su precio?')) return; productos[ya]={n:nombre,p:venta,c:costo,rev}; }
+    else productos.push({n:nombre,p:venta,c:costo,rev});
   }
   await persistProductos();
   limpiarFormProducto();
@@ -1260,7 +1267,8 @@ window.editarProductoUI = function(i){
   document.getElementById('pm-nombre').value=p.n;
   document.getElementById('pm-costo').value=p.c||0;
   document.getElementById('pm-venta').value=p.p||0;
-  document.getElementById('pm-reventa').value=Math.round((p.p||0)*0.75).toLocaleString('es-AR');
+  document.getElementById('pm-desc').value=Math.round(revPct(p)*100);
+  actualizarPreviewReventa();
   window.scrollTo(0,0);
 };
 
@@ -1288,10 +1296,12 @@ window.cargaMasivaProductos = async function(){
     const nombre=partes[0].trim();
     const costo=parseInt(String(partes[1]).replace(/[^0-9]/g,''))||0;
     const venta=parseInt(String(partes[2]).replace(/[^0-9]/g,''))||0;
+    let rev=null;
+    if(partes.length>=4){ const dd=parseFloat(String(partes[3]).replace(/[^0-9.]/g,'')); if(!isNaN(dd)) rev=dd/100; }
     if(!nombre || venta<=0){ errores++; return; }
     const ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
-    if(ya>=0){ productos[ya]={n:nombre,p:venta,c:costo}; actualizados++; }
-    else { productos.push({n:nombre,p:venta,c:costo}); nuevos++; }
+    if(ya>=0){ const pr=productos[ya]; productos[ya]={n:nombre,p:venta,c:costo,rev: rev!=null?rev:(pr.rev!=null?pr.rev:0.25)}; actualizados++; }
+    else { productos.push({n:nombre,p:venta,c:costo,rev: rev!=null?rev:0.25}); nuevos++; }
   });
   await persistProductos();
   document.getElementById('pm-bulk').value='';
@@ -1306,20 +1316,65 @@ function renderProductos(){
   if(!base.length){ wrap.innerHTML='<div class="empty">No hay productos cargados.</div>'; return; }
   const conIdx = base.map((p,i)=>({p,i})).sort((a,b)=>a.p.n.localeCompare(b.p.n));
   wrap.innerHTML='<div style="margin-bottom:8px;color:#888;font-size:13px">'+base.length+' productos</div>'
-    +'<table><thead><tr><th>Producto</th><th>Costo</th><th>Venta</th><th>Reventa</th><th>Margen</th><th></th></tr></thead><tbody>'
+    +'<table><thead><tr><th>Producto</th><th>Costo</th><th>Venta (piloto)</th><th>Reventa</th><th>Desc.</th><th>Margen</th><th></th></tr></thead><tbody>'
     +conIdx.map(({p,i})=>{
-      const rev=Math.round((p.p||0)*0.75);
+      const rev=precioReventa(p);
+      const dpc=Math.round(revPct(p)*100);
       const margen=(p.c&&p.p)?Math.round((1-p.c/p.p)*100):null;
       return '<tr>'
         +'<td>'+p.n+'</td>'
         +'<td>'+(p.c?fmt(p.c):'—')+'</td>'
         +'<td style="font-weight:700">'+fmt(p.p)+'</td>'
         +'<td style="color:#888">'+fmt(rev)+'</td>'
+        +'<td style="color:#888">−'+dpc+'%</td>'
         +'<td>'+(margen!=null?'<span style="color:#1a7f37">'+margen+'%</span>':'—')+'</td>'
         +'<td style="white-space:nowrap"><button class="btn btn-sm" onclick="editarProductoUI('+i+')">✏️</button> <button class="btn btn-danger btn-sm" onclick="eliminarProducto('+i+')">🗑</button></td>'
         +'</tr>';
     }).join('')+'</tbody></table>';
 }
+
+
+window.actualizarPreviewReventa = function(){
+  const venta=parseInt(document.getElementById('pm-venta').value)||0;
+  const desc=parseFloat(document.getElementById('pm-desc').value);
+  const d=(!isNaN(desc)?desc:25)/100;
+  document.getElementById('pm-reventa').value=Math.round(venta*(1-d)).toLocaleString('es-AR');
+};
+
+window.imprimirListaPrecios = function(){
+  const lista = getProds().slice().sort((a,b)=>a.n.localeCompare(b.n));
+  if(!lista.length){ alert('No hay productos cargados.'); return; }
+  const hoy=new Date().toLocaleDateString('es-AR');
+  const rows = lista.map(p=>{
+    const rev=precioReventa(p); const dpc=Math.round(revPct(p)*100);
+    return '<tr>'
+      +'<td style="padding:5px 8px;border-bottom:1px solid #eee">'+p.n+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;border-bottom:1px solid #eee;font-weight:bold">'+fmt(p.p)+'</td>'
+      +'<td style="padding:5px 8px;text-align:right;border-bottom:1px solid #eee">'+fmt(rev)+' <span style="color:#999;font-size:10px">(−'+dpc+'%)</span></td>'
+      +'</tr>';
+  }).join('');
+  let old=document.getElementById('mik-print-div'); if(old) old.remove();
+  const d=document.createElement('div'); d.id='mik-print-div';
+  d.style.cssText='position:fixed;inset:0;background:#fff;z-index:9999;padding:30px;overflow:auto;';
+  d.innerHTML='<div style="max-width:760px;margin:0 auto">'
+    +'<div style="margin-bottom:16px;display:flex;gap:8px">'
+    +'<button onclick="document.getElementById(\'mik-print-div\').remove()" style="padding:7px 16px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">✕ Cerrar</button>'
+    +'<button onclick="window.print()" style="padding:7px 16px;background:#1a7f37;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">🖨 Imprimir / Guardar PDF</button>'
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:16px">'
+    +'<div><div style="font-size:22px;font-weight:bold">MIK</div><div style="font-size:11px;color:#666">Karting de competición</div></div>'
+    +'<div style="text-align:right"><div style="font-size:18px;font-weight:bold">LISTA DE PRECIOS</div><div style="font-size:11px;color:#666">'+hoy+'</div></div>'
+    +'</div>'
+    +'<table style="width:100%;border-collapse:collapse;font-size:12px">'
+    +'<thead><tr style="background:#f5f5f5">'
+    +'<th style="padding:6px 8px;text-align:left;border-bottom:1px solid #ddd">Producto</th>'
+    +'<th style="padding:6px 8px;text-align:right;border-bottom:1px solid #ddd">Precio piloto</th>'
+    +'<th style="padding:6px 8px;text-align:right;border-bottom:1px solid #ddd">Precio reventa</th>'
+    +'</tr></thead><tbody>'+rows+'</tbody></table>'
+    +'<div style="margin-top:14px;font-size:10px;color:#999">Precios sujetos a modificación sin previo aviso.</div>'
+    +'</div>';
+  document.body.appendChild(d);
+};
 
 </script>
 </body>
