@@ -106,6 +106,7 @@ tr:last-child td { border-bottom:none; }
       <div style="display:flex;gap:6px;align-items:center">
         <span id="sync-status" class="sync-indicator sync-ok">● Online</span>
         <span style="font-size:12px;color:#888" id="usuario-actual"></span>
+        <button class="btn btn-sm" onclick="navVolver()" title="Volver un paso atrás">← Volver</button>
         <label class="btn btn-sm" style="cursor:pointer;margin:0" title="Importar backup">📂 Importar<input type="file" id="inp-import-online" accept=".json" style="display:none" onchange="importarBackupOnline(this)"></label>
         <button class="btn btn-sm" onclick="logout()">Salir</button>
       </div>
@@ -442,7 +443,7 @@ const PRODS = [
 ];
 
 let clientes=[], remitos=[], proveedores=[], compras=[], movimientos=[];
-let items=[], itemsCompra=[];
+let items=[], itemsCompra=[], editandoRemitoId=null, tabActual='nuevo', tabPrev='nuevo';
 
 const fmt = n=>'$'+Math.round(n).toLocaleString('es-AR');
 const pct = n=>Math.round(n*100)+'%';
@@ -521,13 +522,14 @@ async function iniciarApp(){
 
   // Escuchar cambios en tiempo real
   onSnapshot(collection(db,'clientes'), snap=>{ clientes=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); actualizarBadges(); });
-  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); document.getElementById('inp-numero').value=String(remitos.length+1).padStart(3,'0'); });
+  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); if(!editandoRemitoId) document.getElementById('inp-numero').value=String(remitos.length+1).padStart(3,'0'); });
   onSnapshot(collection(db,'proveedores'), snap=>{ proveedores=snap.docs.map(d=>({id:d.id,...d.data()})); renderProveedores(); actualizarBadges(); });
   onSnapshot(query(collection(db,'compras'),orderBy('fecha','desc')), snap=>{ compras=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); });
   onSnapshot(collection(db,'movimientos'), snap=>{ movimientos=snap.docs.map(d=>({id:d.id,...d.data()})); });
 }
 
 window.showTab = function(t){
+  if(t!==tabActual){ tabPrev=tabActual; tabActual=t; }
   ['nuevo','compra','historial','cuentas','stats','clientes','proveedores'].forEach((id,i)=>{
     document.getElementById('tab-'+id).style.display='none';
     document.querySelectorAll('.tab')[i].classList.remove('active');
@@ -612,7 +614,7 @@ function renderItems(){
   document.getElementById('util-val').textContent=utilKnown?fmt(util):'—';
 }
 
-window.limpiarRemito = function(){ items=[]; renderItems(); };
+window.limpiarRemito = function(){ items=[]; renderItems(); if(editandoRemitoId){ editandoRemitoId=null; quitarBannerEdicion(); document.getElementById('inp-numero').value=String(remitos.length+1).padStart(3,'0'); } };
 
 function calcTotal(){ return items.reduce((s,it)=>s+it.precio*it.qty,0); }
 
@@ -621,7 +623,8 @@ window.abrirModalPago = function(){
   if(!items.length){ alert('Agregá al menos un producto.'); return; }
   const total=calcTotal();
   document.getElementById('modal-total').textContent=fmt(total);
-  document.getElementById('modal-pago-monto').value=total;
+  const rEdit = editandoRemitoId ? remitos.find(x=>x.id==editandoRemitoId) : null;
+  document.getElementById('modal-pago-monto').value = rEdit ? (rEdit.pagado||0) : total;
   document.getElementById('modal-resultado').style.display='none';
   calcularVuelto();
   document.getElementById('modal-pago').style.display='flex';
@@ -651,15 +654,27 @@ window.confirmarRemito = async function(){
   items.forEach(it=>{ const u=getUtil(it); if(u!==null){util+=u;utilKnown=true;} });
   setSyncStatus(true);
   try {
-    await addDoc(collection(db,'remitos'),{
+    const data = {
       tipo_doc:'remito', numero:document.getElementById('inp-numero').value,
       fecha:document.getElementById('inp-fecha').value,
       pago:document.getElementById('inp-pago').value,
       tipo:document.getElementById('sel-tipo').value,
       cliente:cli, items:JSON.parse(JSON.stringify(items)),
       total, pagado, utilidad:utilKnown?util:null,
-      creadoPor:usuarioActual, creadoEn:new Date().toISOString()
-    });
+      creadoPor:usuarioActual
+    };
+    if(editandoRemitoId){
+      const orig = remitos.find(x=>x.id==editandoRemitoId);
+      data.creadoEn = (orig && orig.creadoEn) ? orig.creadoEn : new Date().toISOString();
+      if(orig && orig.importado) data.importado = true;
+      data.editadoPor = usuarioActual;
+      data.editadoEn = new Date().toISOString();
+      await setDoc(doc(db,'remitos',editandoRemitoId), data);
+      editandoRemitoId=null; quitarBannerEdicion();
+    } else {
+      data.creadoEn = new Date().toISOString();
+      await addDoc(collection(db,'remitos'), data);
+    }
     cerrarModal(); limpiarRemito();
     showTab('historial');
   } catch(e){ alert('Error al guardar: '+e.message); }
@@ -741,6 +756,7 @@ function renderHistorial(){
             ${reg.pagado>0&&reg.pagado<reg.total?`<div style="font-size:12px;color:#888">Cobrado: ${fmt(reg.pagado)}</div>`:''}
             ${reg.utilidad!=null?`<div style="font-size:12px;color:#1a7f37">Utilidad: ${fmt(reg.utilidad)}</div>`:''}
             <div style="display:flex;gap:4px;justify-content:flex-end;margin-top:4px">
+              <button class="btn btn-sm" onclick="editarRemito('${reg.id}')" title="Editar remito">✏️</button>
               <button class="btn btn-sm" onclick="imprimirRemito('${reg.id}')">🖨</button>
               <button class="btn btn-danger btn-sm" onclick="eliminarRemito('${reg.id}')">🗑</button>
             </div>
@@ -1114,6 +1130,47 @@ window.imprimirEstadoCuenta = function(cliId){
     +'</div>';
   document.body.appendChild(d);
 };
+
+
+window.editarRemito = function(id){
+  const r = remitos.find(x=>x.id==id);
+  if(!r){ alert('No se encontró el remito.'); return; }
+  editandoRemitoId = id;
+  showTab('nuevo');
+  try { document.getElementById('sel-cliente').value = (r.cliente && r.cliente.id) ? r.cliente.id : ''; } catch(e){}
+  document.getElementById('sel-tipo').value = r.tipo || 'publico';
+  document.getElementById('inp-numero').value = r.numero || '';
+  document.getElementById('inp-fecha').value = r.fecha || '';
+  document.getElementById('inp-pago').value = r.pago || 'Contado';
+  items = JSON.parse(JSON.stringify(r.items || []));
+  renderItems();
+  mostrarBannerEdicion(r.numero);
+  window.scrollTo(0,0);
+};
+
+function mostrarBannerEdicion(num){
+  quitarBannerEdicion();
+  const tab = document.getElementById('tab-nuevo');
+  const b = document.createElement('div');
+  b.id = 'edit-remito-banner';
+  b.style.cssText = 'background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:10px 14px;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap';
+  b.innerHTML = '<span style="font-weight:600;color:#856404">✏️ Editando Remito N° '+num+' — al cerrarlo se actualiza este mismo remito (no se crea uno nuevo)</span>'
+    + '<button class="btn btn-sm" onclick="cancelarEdicion()">Cancelar edición</button>';
+  tab.insertBefore(b, tab.firstChild);
+}
+
+function quitarBannerEdicion(){ const b=document.getElementById('edit-remito-banner'); if(b) b.remove(); }
+
+window.cancelarEdicion = function(){
+  editandoRemitoId = null;
+  items = [];
+  renderItems();
+  quitarBannerEdicion();
+  document.getElementById('inp-numero').value = String(remitos.length+1).padStart(3,'0');
+  showTab('historial');
+};
+
+window.navVolver = function(){ showTab(tabPrev || 'nuevo'); };
 
 </script>
 </body>
