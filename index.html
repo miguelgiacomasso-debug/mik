@@ -605,7 +605,7 @@ window.agregarItem = function(){
   if(!prod){ alert('Seleccioná un producto.'); return; }
   const precio=precioInput?parseInt(precioInput):getPrecioBase(prod,tipo);
   if(!precio){ alert('Ingresá un precio.'); return; }
-  items.push({prod,qty,precio,esLibre:false});
+  items.push({prod,desc:prod,qty,precio,esLibre:false});
   document.getElementById('sel-producto').value='';
   document.getElementById('inp-precio-display').value='';
   document.getElementById('inp-qty').value='1';
@@ -619,7 +619,7 @@ window.agregarItemLibre = function(){
   const qty=parseInt(document.getElementById('inp-qty-libre').value)||1;
   if(!prod){ alert('Escribí la descripción.'); return; }
   if(!precio||precio<=0){ alert('Ingresá un precio válido.'); return; }
-  items.push({prod,qty,precio,costo,esLibre:true});
+  items.push({prod,desc:prod,qty,precio,costo,esLibre:true});
   document.getElementById('inp-prod-libre').value='';
   document.getElementById('inp-precio-libre').value='';
   document.getElementById('inp-costo-libre').value='';
@@ -630,6 +630,7 @@ window.agregarItemLibre = function(){
 window.actualizarPrecioItem = function(i,val){ const n=parseInt(val); if(!isNaN(n)&&n>0) items[i].precio=n; renderItems(); };
 window.actualizarQtyItem = function(i,val){ const n=parseInt(val); if(!isNaN(n)&&n>0) items[i].qty=n; renderItems(); };
 window.quitarItem = function(i){ items.splice(i,1); renderItems(); };
+window.actualizarDescItem = function(i,val){ if(items[i]) items[i].desc = val; };
 
 function renderItems(){
   const wrap=document.getElementById('tabla-items');
@@ -642,7 +643,7 @@ function renderItems(){
       const u=getUtil(it); if(u!==null){util+=u;utilKnown=true;}
       const us=u!==null?`<span style="color:#1a7f37;font-size:12px">${fmt(u)}</span>`:'<span style="color:#bbb">—</span>';
       return `<tr>
-        <td>${it.prod}${it.esLibre?' <span class="tag">libre</span>':''}</td>
+        <td><input type="text" value="${(it.desc!=null?it.desc:it.prod).replace(/"/g,'&quot;')}" onchange="actualizarDescItem(${i},this.value)" style="width:100%;min-width:150px">${it.esLibre?' <span class="tag">libre</span>':''}</td>
         <td><input class="item-price-input" type="number" value="${it.qty}" min="1" style="width:65px;text-align:center" onchange="actualizarQtyItem(${i},this.value)" onkeydown="if(event.key==='Enter'){actualizarQtyItem(${i},this.value);this.blur();}"></td>
         <td><input class="item-price-input" type="number" value="${it.precio}" onchange="actualizarPrecioItem(${i},this.value)" onkeydown="if(event.key==='Enter'){actualizarPrecioItem(${i},this.value);this.blur();}"></td>
         <td>${us}</td>
@@ -804,7 +805,7 @@ function renderHistorial(){
           </div>
         </div>
         <table><thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>
-        ${reg.items.map(it=>`<tr><td>${it.prod}${it.esLibre?' <span class="tag">libre</span>':''}</td><td>${it.qty}</td><td>${fmt(it.precio)}</td><td>${fmt(it.precio*it.qty)}</td></tr>`).join('')}
+        ${reg.items.map(it=>`<tr><td>${it.desc!=null?it.desc:it.prod}${it.esLibre?' <span class="tag">libre</span>':''}</td><td>${it.qty}</td><td>${fmt(it.precio)}</td><td>${fmt(it.precio*it.qty)}</td></tr>`).join('')}
         </tbody></table></div>`;
     } else {
       return `<div class="card" style="margin-bottom:8px;border-left:3px solid #f59e0b">
@@ -1068,7 +1069,7 @@ window.imprimirRemito = function(idOrObj){
   if(!r) return;
   const fecha=new Date(r.fecha+'T12:00').toLocaleDateString('es-AR');
   const pendiente=r.total-(r.pagado||0);
-  const rows=r.items.map(it=>'<tr><td>'+it.prod+'</td><td style="text-align:center">'+it.qty+'</td><td style="text-align:right">'+fmt(it.precio)+'</td><td style="text-align:right;font-weight:bold">'+fmt(it.precio*it.qty)+'</td></tr>').join('');
+  const rows=r.items.map(it=>'<tr><td>'+(it.desc!=null?it.desc:it.prod)+'</td><td style="text-align:center">'+it.qty+'</td><td style="text-align:right">'+fmt(it.precio)+'</td><td style="text-align:right;font-weight:bold">'+fmt(it.precio*it.qty)+'</td></tr>').join('');
   let old = document.getElementById('mik-print-div');
   if(old) old.remove();
   const d = document.createElement('div');
