@@ -157,8 +157,11 @@ tr:last-child td { border-bottom:none; }
           <input type="number" id="inp-qty" value="1" min="1" style="width:70px">
           <input type="number" id="inp-precio-display" placeholder="Precio" style="width:120px" onkeydown="if(event.key==='Enter')agregarItem()">
         </div>
+        <div class="row" style="gap:8px;margin-bottom:8px">
+          <input type="text" id="inp-desc-item" placeholder="Descripción (podés agregar detalles, ej: color rosa)" style="flex:1" onkeydown="if(event.key==='Enter')agregarItem()">
+        </div>
         <div class="row" style="gap:8px">
-          <div class="hint" style="flex:1">Precio se autocompleta. Modificalo si es necesario y presioná Enter.</div>
+          <div class="hint" style="flex:1">Elegí el producto y el cursor queda en la descripción. Agregá detalles si querés y presioná Enter, o Enter directo para confirmar.</div>
           <button class="btn btn-primary" onclick="agregarItem()">+ Agregar</button>
         </div>
       </div>
@@ -591,10 +594,10 @@ window.toggleModo = function(){
 window.autocompletarPrecio = function(){
   const prod=document.getElementById('sel-producto').value;
   const tipo=document.getElementById('sel-tipo').value;
-  if(!prod){ document.getElementById('inp-precio-display').value=''; return; }
+  const descEl=document.getElementById('inp-desc-item');
+  if(!prod){ document.getElementById('inp-precio-display').value=''; if(descEl) descEl.value=''; return; }
   document.getElementById('inp-precio-display').value=getPrecioBase(prod,tipo);
-  document.getElementById('inp-precio-display').focus();
-  document.getElementById('inp-precio-display').select();
+  if(descEl){ descEl.value=prod; descEl.focus(); const len=descEl.value.length; descEl.setSelectionRange(len,len); }
 };
 
 window.agregarItem = function(){
@@ -605,11 +608,15 @@ window.agregarItem = function(){
   if(!prod){ alert('Seleccioná un producto.'); return; }
   const precio=precioInput?parseInt(precioInput):getPrecioBase(prod,tipo);
   if(!precio){ alert('Ingresá un precio.'); return; }
-  items.push({prod,desc:prod,qty,precio,esLibre:false});
+  const descInput=(document.getElementById('inp-desc-item').value||'').trim();
+  const desc=descInput||prod;
+  items.push({prod,desc,qty,precio,esLibre:false});
   document.getElementById('sel-producto').value='';
   document.getElementById('inp-precio-display').value='';
+  document.getElementById('inp-desc-item').value='';
   document.getElementById('inp-qty').value='1';
   renderItems();
+  document.getElementById('sel-producto').focus();
 };
 
 window.agregarItemLibre = function(){
