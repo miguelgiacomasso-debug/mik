@@ -142,7 +142,7 @@ tr:last-child td { border-bottom:none; }
       <div><div class="label">N° remito</div><input type="text" id="inp-numero" value="001"></div>
       <div><div class="label">Fecha</div><input type="date" id="inp-fecha"></div>
       <div><div class="label">Condición de pago</div>
-        <select id="inp-pago"><option>Contado</option><option>30 días</option><option>Señado</option><option>A convenir</option></select>
+        <select id="inp-pago"><option>Contado</option><option>Cuenta corriente</option></select>
       </div>
     </div>
     <div class="card" style="margin-bottom:1rem">
@@ -561,10 +561,10 @@ async function iniciarApp(){
 
   // Escuchar cambios en tiempo real
   onSnapshot(collection(db,'clientes'), snap=>{ clientes=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); actualizarBadges(); });
-  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); if(!editandoRemitoId) document.getElementById('inp-numero').value=String(remitos.length+1).padStart(3,'0'); });
+  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); renderClientes(); actualizarBadges(); poblarMeses(); if(tabActual==='cuentas') renderCC(); if(!editandoRemitoId) document.getElementById('inp-numero').value=String(remitos.length+1).padStart(3,'0'); });
   onSnapshot(collection(db,'proveedores'), snap=>{ proveedores=snap.docs.map(d=>({id:d.id,...d.data()})); renderProveedores(); actualizarBadges(); });
   onSnapshot(query(collection(db,'compras'),orderBy('fecha','desc')), snap=>{ compras=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); });
-  onSnapshot(collection(db,'movimientos'), snap=>{ movimientos=snap.docs.map(d=>({id:d.id,...d.data()})); });
+  onSnapshot(collection(db,'movimientos'), snap=>{ movimientos=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); renderHistorial(); if(tabActual==='cuentas') renderCC(); });
   onSnapshot(doc(db,'config','productos'), snap=>{
     if(snap.exists()){ productos=(snap.data().lista)||[]; poblarSelectProductos(); if(tabActual==='productos') renderProductos(); }
     else { setDoc(doc(db,'config','productos'),{lista:PRODS}); }
@@ -793,9 +793,10 @@ function renderHistorial(){
   if(filtro!=='remitos') lista=lista.concat(compras.map(c=>({...c,_t:'compra'})));
   lista.sort((a,b)=>b.fecha.localeCompare(a.fecha));
   if(!lista.length){ wrap.innerHTML='<div class="empty">No hay registros.</div>'; return; }
+  const pendMap=calcPendientes();
   wrap.innerHTML=lista.map(reg=>{
     if(reg._t==='remito'){
-      const pendiente=reg.total-(reg.pagado||0);
+      const pendiente=(pendMap[reg.id]!=null)?pendMap[reg.id]:(reg.total-(reg.pagado||0));
       return `<div class="card" style="margin-bottom:8px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px">
           <div><div style="font-weight:700">📄 Remito N° ${reg.numero} <span class="badge ${reg.tipo==='reventa'?'badge-rev':'badge-pub'}">${reg.tipo==='reventa'?'Reventa':'Público'}</span>${pendiente>0?` <span class="badge badge-debe">Debe ${fmt(pendiente)}</span>`:' <span class="badge badge-ok">Pagado</span>'}${reg.creadoPor?` <span class="tag">${reg.creadoPor}</span>`:''}</div>
@@ -856,6 +857,21 @@ function saldoCliente(cliId){
   remitos.filter(r=> r.cliente.id==cliId || r.cliente.nombre==cli.nombre).forEach(r=>{ saldo+=r.total; saldo-=(r.pagado||0); });
   movimientos.filter(m=>m.cliId==cliId || m.cliNombre==cli.nombre).forEach(m=>{ saldo-=m.monto; });
   return saldo;
+}
+
+function calcPendientes(){
+  const pend={};
+  clientes.forEach(cli=>{
+    const rs=remitos.filter(r=> r.cliente && (r.cliente.id==cli.id || r.cliente.nombre==cli.nombre))
+      .slice().sort((a,b)=>(a.fecha||'').localeCompare(b.fecha||''));
+    let pool=0;
+    movimientos.filter(m=> m.cliId==cli.id || m.cliNombre==cli.nombre).forEach(m=> pool+=(m.monto||0));
+    rs.forEach(r=>{
+      let p=(r.total||0)-(r.pagado||0); if(p<0) p=0;
+      const use=Math.min(pool,p); pool-=use; pend[r.id]=p-use;
+    });
+  });
+  return pend;
 }
 
 function renderCCSelector(){
