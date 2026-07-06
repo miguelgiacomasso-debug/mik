@@ -154,7 +154,7 @@ tr:last-child td { border-bottom:none; }
       <div id="modo-lista">
         <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:8px">
           <select id="sel-producto" style="flex:3;min-width:200px" onchange="autocompletarPrecio()"><option value="">— Seleccionar —</option></select>
-          <input type="number" id="inp-qty" value="1" min="1" style="width:70px">
+          <input type="number" id="inp-qty" value="1" min="0.5" step="0.5" style="width:70px">
           <input type="number" id="inp-precio-display" placeholder="Precio" style="width:120px" onkeydown="if(event.key==='Enter')agregarItem()">
         </div>
         <div class="row" style="gap:8px;margin-bottom:8px">
@@ -172,7 +172,7 @@ tr:last-child td { border-bottom:none; }
         </div>
         <div class="grid2" style="margin-bottom:8px">
           <div><div class="label">Costo MIK (opcional)</div><input type="number" id="inp-costo-libre" placeholder="Ej: 40000"></div>
-          <div><div class="label">Cantidad</div><input type="number" id="inp-qty-libre" value="1" min="1"></div>
+          <div><div class="label">Cantidad</div><input type="number" id="inp-qty-libre" value="1" min="0.5" step="0.5"></div>
         </div>
         <button class="btn btn-primary" onclick="agregarItemLibre()">+ Agregar</button>
       </div>
@@ -602,7 +602,7 @@ window.autocompletarPrecio = function(){
 
 window.agregarItem = function(){
   const prod=document.getElementById('sel-producto').value;
-  const qty=parseInt(document.getElementById('inp-qty').value)||1;
+  const qty=parseFloat(document.getElementById('inp-qty').value)||1;
   const tipo=document.getElementById('sel-tipo').value;
   const precioInput=document.getElementById('inp-precio-display').value;
   if(!prod){ alert('Seleccioná un producto.'); return; }
@@ -623,7 +623,7 @@ window.agregarItemLibre = function(){
   const prod=document.getElementById('inp-prod-libre').value.trim();
   const precio=parseInt(document.getElementById('inp-precio-libre').value);
   const costo=parseInt(document.getElementById('inp-costo-libre').value)||0;
-  const qty=parseInt(document.getElementById('inp-qty-libre').value)||1;
+  const qty=parseFloat(document.getElementById('inp-qty-libre').value)||1;
   if(!prod){ alert('Escribí la descripción.'); return; }
   if(!precio||precio<=0){ alert('Ingresá un precio válido.'); return; }
   items.push({prod,desc:prod,qty,precio,costo,esLibre:true});
@@ -635,7 +635,7 @@ window.agregarItemLibre = function(){
 };
 
 window.actualizarPrecioItem = function(i,val){ const n=parseInt(val); if(!isNaN(n)&&n>0) items[i].precio=n; renderItems(); };
-window.actualizarQtyItem = function(i,val){ const n=parseInt(val); if(!isNaN(n)&&n>0) items[i].qty=n; renderItems(); };
+window.actualizarQtyItem = function(i,val){ const n=parseFloat(val); if(!isNaN(n)&&n>0) items[i].qty=n; renderItems(); };
 window.quitarItem = function(i){ items.splice(i,1); renderItems(); };
 window.actualizarDescItem = function(i,val){ if(items[i]) items[i].desc = val; };
 
@@ -651,7 +651,7 @@ function renderItems(){
       const us=u!==null?`<span style="color:#1a7f37;font-size:12px">${fmt(u)}</span>`:'<span style="color:#bbb">—</span>';
       return `<tr>
         <td><input type="text" value="${(it.desc!=null?it.desc:it.prod).replace(/"/g,'&quot;')}" onchange="actualizarDescItem(${i},this.value)" style="width:100%;min-width:150px">${it.esLibre?' <span class="tag">libre</span>':''}</td>
-        <td><input class="item-price-input" type="number" value="${it.qty}" min="1" style="width:65px;text-align:center" onchange="actualizarQtyItem(${i},this.value)" onkeydown="if(event.key==='Enter'){actualizarQtyItem(${i},this.value);this.blur();}"></td>
+        <td><input class="item-price-input" type="number" value="${it.qty}" min="0.5" step="0.5" style="width:65px;text-align:center" onchange="actualizarQtyItem(${i},this.value)" onkeydown="if(event.key==='Enter'){actualizarQtyItem(${i},this.value);this.blur();}"></td>
         <td><input class="item-price-input" type="number" value="${it.precio}" onchange="actualizarPrecioItem(${i},this.value)" onkeydown="if(event.key==='Enter'){actualizarPrecioItem(${i},this.value);this.blur();}"></td>
         <td>${us}</td>
         <td style="font-weight:700">${fmt(sub)}</td>
@@ -878,7 +878,7 @@ function renderCCSelector(){
   const sel=document.getElementById('sel-cliente-cc');
   const val=sel.value;
   sel.innerHTML='<option value="">— Seleccionar cliente —</option>';
-  clientes.forEach(c=>{ const o=document.createElement('option'); o.value=c.id; o.textContent=c.nombre; sel.appendChild(o); });
+  clientes.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(c=>{ const o=document.createElement('option'); o.value=c.id; o.textContent=c.nombre; sel.appendChild(o); });
   if(val) sel.value=val;
 }
 
@@ -1003,7 +1003,7 @@ function renderClientesSelect(){
   ['sel-cliente','sel-cliente-cc'].forEach(id=>{
     const sel=document.getElementById(id); if(!sel) return;
     const val=sel.value; sel.innerHTML='<option value="">— Seleccionar —</option>';
-    clientes.forEach(c=>{ const o=document.createElement('option'); o.value=c.id; const s=saldoCliente(c.id); o.textContent=c.nombre+(s>0?' ⚠ Debe '+fmt(s):''); sel.appendChild(o); }); sel.value=val;
+    clientes.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).forEach(c=>{ const o=document.createElement('option'); o.value=c.id; const s=saldoCliente(c.id); o.textContent=c.nombre+(s>0?' ⚠ Debe '+fmt(s):''); sel.appendChild(o); }); sel.value=val;
   });
 }
 
@@ -1011,7 +1011,7 @@ function renderClientes(){
   renderClientesSelect();
   const wrap=document.getElementById('lista-clientes');
   if(!clientes.length){ wrap.innerHTML='<div class="empty">No hay clientes.</div>'; return; }
-  wrap.innerHTML='<div class="sec" style="margin-top:1rem">Clientes ('+clientes.length+')</div>'+clientes.map(c=>{
+  wrap.innerHTML='<div class="sec" style="margin-top:1rem">Clientes ('+clientes.length+')</div>'+clientes.slice().sort((a,b)=>a.nombre.localeCompare(b.nombre)).map(c=>{
     const saldo=saldoCliente(c.id);
     return `<div class="card" style="margin-bottom:8px">
       <div style="display:flex;justify-content:space-between;align-items:flex-start">
