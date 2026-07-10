@@ -402,8 +402,13 @@ tr:last-child td { border-bottom:none; }
         </div>
       </div>
       <div class="grid2" style="margin-bottom:12px">
-        <div><div class="label">Concepto</div><input type="text" id="soc-concepto" placeholder="Ej: Cromados, 2 juegos punta de eje..."></div>
+        <div><div class="label">Concepto</div><input type="text" id="soc-concepto" placeholder="Ej: Cromados"></div>
         <div><div class="label">Monto total ($)</div><input type="number" id="soc-monto" placeholder="Ej: 250000"></div>
+      </div>
+      <div style="margin-bottom:12px"><div class="label">Detalle de la compra (opcional)</div><textarea id="soc-detalle" rows="2" style="resize:vertical" placeholder="Ej: Cromado de 4 puntas de eje + 2 columnas, factura FAC-123"></textarea></div>
+      <div class="grid2" style="margin-bottom:12px">
+        <div><div class="label">Fecha</div><input type="date" id="soc-fecha"></div>
+        <div><div class="label">Foto factura/remito (opcional)</div><input type="file" id="soc-foto" accept="image/*" capture="environment"></div>
       </div>
       <button class="btn btn-primary" onclick="agregarMovSocio()">Agregar movimiento</button>
     </div>
@@ -415,7 +420,7 @@ tr:last-child td { border-bottom:none; }
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getFirestore, collection, addDoc, getDocs, getDoc, deleteDoc, doc, onSnapshot, query, orderBy, setDoc } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyC6rerIMBOjf6lg3ldeCOoSuyVpPzA7MHk",
@@ -514,6 +519,7 @@ let clientes=[], remitos=[], proveedores=[], compras=[], movimientos=[], product
 let items=[], itemsCompra=[], editandoRemitoId=null, tabActual='nuevo', tabPrev='nuevo';
 
 const fmt = n=>'$'+Math.round(n).toLocaleString('es-AR');
+const fmtc = n=>{ const r=Math.round(n*100)/100; const dec=(r%1!==0); return '$'+r.toLocaleString('es-AR',{minimumFractionDigits:dec?2:0,maximumFractionDigits:2}); };
 const pct = n=>Math.round(n*100)+'%';
 const mesKey = f=>f.substring(0,7);
 const mesLabel = k=>{ const [y,m]=k.split('-'); return ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][parseInt(m)-1]+' '+y; };
@@ -878,7 +884,10 @@ function renderHistorial(){
           <div style="font-size:12px;color:#888">${reg.proveedor.nombre} — ${new Date(reg.fecha+'T12:00').toLocaleDateString('es-AR')} — ${reg.pago}</div></div>
           <div style="text-align:right">
             <div style="font-size:18px;font-weight:700;color:#b45309">${fmt(reg.total)}</div>
-            <button class="btn btn-danger btn-sm" style="margin-top:4px" onclick="eliminarCompra('${reg.id}')">🗑</button>
+            <div style="display:flex;gap:4px;justify-content:flex-end;margin-top:4px">
+              ${reg.fotoId?`<button class="btn btn-sm" onclick="verFoto('${reg.fotoId}')" title="Ver factura">📷</button>`:''}
+              <button class="btn btn-danger btn-sm" onclick="eliminarCompra('${reg.id}')">🗑</button>
+            </div>
           </div>
         </div>
         <table><thead><tr><th>Descripción</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>
@@ -894,7 +903,8 @@ window.eliminarRemito = async function(id){
 };
 window.eliminarCompra = async function(id){
   if(!confirm('¿Eliminar compra?')) return;
-  setSyncStatus(true); await deleteDoc(doc(db,'compras',id)); setSyncStatus(false);
+  const c=compras.find(x=>x.id==id);
+  setSyncStatus(true); await deleteDoc(doc(db,'compras',id)); if(c&&c.fotoId) await borrarFotoSiExiste(c.fotoId); setSyncStatus(false);
 };
 
 function actualizarBadges(){
@@ -1473,12 +1483,14 @@ function netoSocios(){
 }
 
 function renderSocios(){
+  const fechaEl=document.getElementById('soc-fecha');
+  if(fechaEl && !fechaEl.value) fechaEl.value=new Date().toISOString().slice(0,10);
   const est=document.getElementById('socios-estado');
   const net=netoSocios();
   if(est){
-    if(Math.abs(net)<1) est.innerHTML='<span style="color:#1a7f37">✔ Cuentas al día</span>';
-    else if(net>0) est.innerHTML='<span style="color:#c0392b">Roque le debe a Miguel '+fmt(net)+'</span>';
-    else est.innerHTML='<span style="color:#c0392b">Miguel le debe a Roque '+fmt(-net)+'</span>';
+    if(Math.abs(net)<0.005) est.innerHTML='<span style="color:#1a7f37">✔ Cuentas al día</span>';
+    else if(net>0) est.innerHTML='<span style="color:#c0392b">Roque le debe a Miguel '+fmtc(net)+'</span>';
+    else est.innerHTML='<span style="color:#c0392b">Miguel le debe a Roque '+fmtc(-net)+'</span>';
   }
   const wrap=document.getElementById('lista-socios');
   if(!wrap) return;
@@ -1487,16 +1499,19 @@ function renderSocios(){
   wrap.innerHTML=ord.map(m=>{
     const mitad=(m.monto||0)/2;
     let efecto='';
-    if(m.tipo==='gasto') efecto=(m.quien==='Miguel'?'Roque debe ':'Miguel debe ')+fmt(mitad);
-    else if(m.tipo==='venta') efecto=(m.quien==='Miguel'?'Miguel debe ':'Roque debe ')+fmt(mitad);
+    if(m.tipo==='gasto') efecto=(m.quien==='Miguel'?'Roque debe ':'Miguel debe ')+fmtc(mitad);
+    else if(m.tipo==='venta') efecto=(m.quien==='Miguel'?'Miguel debe ':'Roque debe ')+fmtc(mitad);
     else efecto='Liquidación';
     const icono=m.tipo==='gasto'?'🛒':m.tipo==='venta'?'💵':'🤝';
     const tipoTxt=m.tipo==='gasto'?'Gasto':m.tipo==='venta'?'Venta':'Pago';
     return '<div class="card" style="padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
       +'<div><div style="font-weight:600">'+icono+' '+(m.concepto||tipoTxt)+'</div>'
-      +'<div style="font-size:12px;color:#888">'+(m.fecha?new Date(m.fecha+'T12:00').toLocaleDateString('es-AR'):'')+' · '+m.quien+' · '+tipoTxt+' '+fmt(m.monto)+'</div></div>'
+      +(m.detalle?'<div style="font-size:12px;color:#555;margin:2px 0;white-space:pre-wrap">'+m.detalle+'</div>':'')
+      +'<div style="font-size:12px;color:#888">'+(m.fecha?new Date(m.fecha+'T12:00').toLocaleDateString('es-AR'):'')+' · '+m.quien+' · '+tipoTxt+' '+fmtc(m.monto)+'</div></div>'
       +'<div style="text-align:right;white-space:nowrap"><div style="font-size:12px;color:#555">'+efecto+'</div>'
-      +'<button class="btn btn-danger btn-sm" style="margin-top:4px" onclick="eliminarMovSocio(\''+m.id+'\')">🗑</button></div>'
+      +'<div style="margin-top:4px;display:flex;gap:4px;justify-content:flex-end">'
+      +(m.fotoId?'<button class="btn btn-sm" onclick="verFoto(\''+m.fotoId+'\')" title="Ver factura">📷</button>':'')
+      +'<button class="btn btn-danger btn-sm" onclick="eliminarMovSocio(\''+m.id+'\')">🗑</button></div></div>'
       +'</div>';
   }).join('');
 }
@@ -1505,24 +1520,29 @@ window.agregarMovSocio = async function(){
   const tipo=document.getElementById('soc-tipo').value;
   const quien=document.getElementById('soc-quien').value;
   const concepto=document.getElementById('soc-concepto').value.trim();
+  const detalle=document.getElementById('soc-detalle').value.trim();
   const monto=parseFloat(document.getElementById('soc-monto').value)||0;
+  const fecha=document.getElementById('soc-fecha').value || new Date().toISOString().slice(0,10);
   if(monto<=0){ alert('Ingresá un monto válido.'); return; }
   setSyncStatus(true);
   try {
-    await addDoc(collection(db,'socios_mov'), {tipo,quien,concepto,monto,fecha:new Date().toISOString().slice(0,10),creadoEn:new Date().toISOString()});
+    const fotoId=await subirFoto(document.getElementById('soc-foto'));
+    await addDoc(collection(db,'socios_mov'), {tipo,quien,concepto,detalle,monto,fecha,fotoId:fotoId||null,creadoEn:new Date().toISOString()});
     document.getElementById('soc-concepto').value='';
+    document.getElementById('soc-detalle').value='';
     document.getElementById('soc-monto').value='';
+    document.getElementById('soc-foto').value='';
   } catch(e){ alert('Error: '+e.message); }
   setSyncStatus(false);
 };
 
 window.saldarCuentaSocios = async function(){
   const net=netoSocios();
-  if(Math.abs(net)<1){ alert('La cuenta ya está al día.'); return; }
+  if(Math.abs(net)<0.005){ alert('La cuenta ya está al día.'); return; }
   const quienPaga = net>0 ? 'Roque' : 'Miguel';
   const quienCobra = net>0 ? 'Miguel' : 'Roque';
-  const monto=Math.round(Math.abs(net));
-  if(!confirm(quienPaga+' le paga '+fmt(monto)+' a '+quienCobra+'.\n\n¿Registrar la liquidación y dejar la cuenta en cero?')) return;
+  const monto=Math.round(Math.abs(net)*100)/100;
+  if(!confirm(quienPaga+' le paga '+fmtc(monto)+' a '+quienCobra+'.\n\n¿Registrar la liquidación y dejar la cuenta en cero?')) return;
   setSyncStatus(true);
   try {
     await addDoc(collection(db,'socios_mov'), {tipo:'pago',quien:quienPaga,concepto:'Liquidación de cuenta',monto,fecha:new Date().toISOString().slice(0,10),creadoEn:new Date().toISOString()});
@@ -1532,10 +1552,65 @@ window.saldarCuentaSocios = async function(){
 
 window.eliminarMovSocio = async function(id){
   if(!confirm('¿Borrar este movimiento de la cuenta entre socios?')) return;
+  const m=sociosMov.find(x=>x.id==id);
   setSyncStatus(true);
-  try { await deleteDoc(doc(db,'socios_mov',id)); } catch(e){ alert('Error: '+e.message); }
+  try { await deleteDoc(doc(db,'socios_mov',id)); if(m&&m.fotoId) await borrarFotoSiExiste(m.fotoId); } catch(e){ alert('Error: '+e.message); }
   setSyncStatus(false);
 };
+
+
+function resizeImagen(file, maxDim, quality){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=e=>{
+      const img=new Image();
+      img.onload=()=>{
+        let w=img.width, h=img.height;
+        if(w>h){ if(w>maxDim){ h=Math.round(h*maxDim/w); w=maxDim; } }
+        else { if(h>maxDim){ w=Math.round(w*maxDim/h); h=maxDim; } }
+        const canvas=document.createElement('canvas');
+        canvas.width=w; canvas.height=h;
+        canvas.getContext('2d').drawImage(img,0,0,w,h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror=reject;
+      img.src=e.target.result;
+    };
+    reader.onerror=reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function subirFoto(fileInput){
+  const file=fileInput && fileInput.files && fileInput.files[0];
+  if(!file) return null;
+  const dataUrl=await resizeImagen(file, 1200, 0.6);
+  const ref=await addDoc(collection(db,'fotos'), {data:dataUrl, creadoEn:new Date().toISOString()});
+  return ref.id;
+}
+
+window.verFoto = async function(fotoId){
+  if(!fotoId) return;
+  try {
+    const snap=await getDoc(doc(db,'fotos',fotoId));
+    if(!snap.exists()){ alert('La foto no está disponible.'); return; }
+    const data=snap.data().data;
+    let old=document.getElementById('mik-print-div'); if(old) old.remove();
+    const d=document.createElement('div'); d.id='mik-print-div';
+    d.style.cssText='position:fixed;inset:0;background:#111;z-index:9999;padding:16px;overflow:auto;text-align:center;';
+    d.innerHTML='<div style="margin-bottom:12px;display:flex;gap:8px;justify-content:center">'
+      +'<button onclick="document.getElementById(\'mik-print-div\').remove()" style="padding:8px 18px;background:#555;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px">✕ Cerrar</button>'
+      +'<a href="'+data+'" download="factura.jpg" style="padding:8px 18px;background:#1a7f37;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;text-decoration:none">⬇ Descargar</a>'
+      +'</div>'
+      +'<img src="'+data+'" style="max-width:100%;height:auto;border-radius:8px">';
+    document.body.appendChild(d);
+  } catch(e){ alert('No se pudo abrir la foto: '+e.message); }
+};
+
+async function borrarFotoSiExiste(fotoId){
+  if(!fotoId) return;
+  try { await deleteDoc(doc(db,'fotos',fotoId)); } catch(e){}
+}
 
 </script>
 </body>
