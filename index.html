@@ -408,7 +408,15 @@ tr:last-child td { border-bottom:none; }
       <div style="margin-bottom:12px"><div class="label">Detalle de la compra (opcional)</div><textarea id="soc-detalle" rows="2" style="resize:vertical" placeholder="Ej: Cromado de 4 puntas de eje + 2 columnas, factura FAC-123"></textarea></div>
       <div class="grid2" style="margin-bottom:12px">
         <div><div class="label">Fecha</div><input type="date" id="soc-fecha"></div>
-        <div><div class="label">Foto factura/comprobante (opcional)</div><input type="file" id="soc-foto" accept="image/*"></div>
+        <div><div class="label">Foto factura/comprobante (opcional)</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button type="button" class="btn btn-sm" onclick="document.getElementById('soc-foto-cam').click()">📷 Sacar foto</button>
+            <button type="button" class="btn btn-sm" onclick="document.getElementById('soc-foto-gal').click()">🖼️ Elegir imagen</button>
+            <span id="soc-foto-estado" style="font-size:12px;color:#1a7f37"></span>
+            <input type="file" id="soc-foto-cam" accept="image/*" capture="environment" style="display:none" onchange="marcarFotoSocio(this)">
+            <input type="file" id="soc-foto-gal" accept="image/*" style="display:none" onchange="marcarFotoSocio(this)">
+          </div>
+        </div>
       </div>
       <button class="btn btn-primary" onclick="agregarMovSocio()">Agregar movimiento</button>
     </div>
@@ -1516,6 +1524,14 @@ function renderSocios(){
   }).join('');
 }
 
+window.marcarFotoSocio = function(input){
+  const cam=document.getElementById('soc-foto-cam');
+  const gal=document.getElementById('soc-foto-gal');
+  if(input===cam) gal.value=''; else cam.value='';
+  const est=document.getElementById('soc-foto-estado');
+  if(est) est.textContent = (input.files&&input.files[0]) ? '✓ Foto lista' : '';
+};
+
 window.agregarMovSocio = async function(){
   const tipo=document.getElementById('soc-tipo').value;
   const quien=document.getElementById('soc-quien').value;
@@ -1526,12 +1542,16 @@ window.agregarMovSocio = async function(){
   if(monto<=0){ alert('Ingresá un monto válido.'); return; }
   setSyncStatus(true);
   try {
-    const fotoId=await subirFoto(document.getElementById('soc-foto'));
+    const camEl=document.getElementById('soc-foto-cam');
+    const galEl=document.getElementById('soc-foto-gal');
+    const fotoEl=(camEl.files&&camEl.files[0])?camEl:galEl;
+    const fotoId=await subirFoto(fotoEl);
     await addDoc(collection(db,'socios_mov'), {tipo,quien,concepto,detalle,monto,fecha,fotoId:fotoId||null,creadoEn:new Date().toISOString()});
     document.getElementById('soc-concepto').value='';
     document.getElementById('soc-detalle').value='';
     document.getElementById('soc-monto').value='';
-    document.getElementById('soc-foto').value='';
+    camEl.value=''; galEl.value='';
+    const est=document.getElementById('soc-foto-estado'); if(est) est.textContent='';
   } catch(e){ alert('Error: '+e.message); }
   setSyncStatus(false);
 };
