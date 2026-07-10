@@ -107,6 +107,7 @@ tr:last-child td { border-bottom:none; }
         <span id="sync-status" class="sync-indicator sync-ok">● Online</span>
         <span style="font-size:12px;color:#888" id="usuario-actual"></span>
         <button class="btn btn-sm" onclick="navVolver()" title="Volver un paso atrás">← Volver</button>
+        <button class="btn btn-sm" onclick="exportarBackup()" title="Descargar respaldo de todos los datos">💾 Respaldo</button>
         <label class="btn btn-sm" style="cursor:pointer;margin:0" title="Importar backup">📂 Importar<input type="file" id="inp-import-online" accept=".json" style="display:none" onchange="importarBackupOnline(this)"></label>
         <button class="btn btn-sm" onclick="logout()">Salir</button>
       </div>
@@ -498,6 +499,25 @@ function setSyncStatus(loading){
   if(loading){ el.className='sync-indicator sync-loading'; el.textContent='● Guardando...'; }
   else { el.className='sync-indicator sync-ok'; el.textContent='● Online'; }
 }
+
+window.exportarBackup = function(){
+  try {
+    const data = {
+      version: 1,
+      fecha: new Date().toISOString(),
+      clientes, remitos, proveedores, compras, movimientos, productos
+    };
+    const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'MIK_respaldo.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch(e){ alert('No se pudo generar el respaldo: '+e.message); }
+};
 
 window.importarBackupOnline = async function(input){
   const file = input.files[0];
