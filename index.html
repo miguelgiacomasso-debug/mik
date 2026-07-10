@@ -123,6 +123,7 @@ tr:last-child td { border-bottom:none; }
     <button class="tab" onclick="showTab('clientes')">👥 Clientes (<span id="badge-clientes">0</span>)</button>
     <button class="tab" onclick="showTab('proveedores')">🏭 Proveedores (<span id="badge-proveedores">0</span>)</button>
     <button class="tab" onclick="showTab('productos')">🏷️ Productos</button>
+    <button class="tab" onclick="showTab('socios')">🤝 Socios</button>
   </div>
 
   <!-- NUEVO REMITO -->
@@ -379,6 +380,35 @@ tr:last-child td { border-bottom:none; }
     </div>
     <div id="lista-productos"><div class="empty">Cargando...</div></div>
   </div>
+
+  <div id="tab-socios" style="display:none">
+    <div class="card" style="text-align:center;margin-bottom:1rem">
+      <div class="label">Estado de la cuenta entre socios</div>
+      <div id="socios-estado" style="font-size:22px;font-weight:bold;margin-top:6px">—</div>
+      <button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="saldarCuentaSocios()">✓ Saldar cuenta (dejar en cero)</button>
+    </div>
+    <div class="card">
+      <div class="sec">Cargar movimiento</div>
+      <div class="hint" style="margin-bottom:10px">Cargá el <b>monto total</b>. El programa reparte 50/50 automáticamente.</div>
+      <div class="grid2" style="margin-bottom:8px">
+        <div><div class="label">Tipo</div>
+          <select id="soc-tipo">
+            <option value="gasto">Gasto / Compra (el que paga, le deben la mitad)</option>
+            <option value="venta">Venta (el que cobra, debe la mitad)</option>
+          </select>
+        </div>
+        <div><div class="label">¿Quién lo hizo?</div>
+          <select id="soc-quien"><option value="Miguel">Miguel</option><option value="Roque">Roque</option></select>
+        </div>
+      </div>
+      <div class="grid2" style="margin-bottom:12px">
+        <div><div class="label">Concepto</div><input type="text" id="soc-concepto" placeholder="Ej: Cromados, 2 juegos punta de eje..."></div>
+        <div><div class="label">Monto total ($)</div><input type="number" id="soc-monto" placeholder="Ej: 250000"></div>
+      </div>
+      <button class="btn btn-primary" onclick="agregarMovSocio()">Agregar movimiento</button>
+    </div>
+    <div id="lista-socios"><div class="empty">Sin movimientos.</div></div>
+  </div>
 </div>
 </div>
 
@@ -480,7 +510,7 @@ const PRODS = [
   {n:"KARTUP",p:220000,c:84532},{n:"PEDALERA POSTIZA GRANDE",p:135000,c:58348}
 ];
 
-let clientes=[], remitos=[], proveedores=[], compras=[], movimientos=[], productos=[];
+let clientes=[], remitos=[], proveedores=[], compras=[], movimientos=[], productos=[], sociosMov=[];
 let items=[], itemsCompra=[], editandoRemitoId=null, tabActual='nuevo', tabPrev='nuevo';
 
 const fmt = n=>'$'+Math.round(n).toLocaleString('es-AR');
@@ -505,7 +535,7 @@ window.exportarBackup = function(){
     const data = {
       version: 1,
       fecha: new Date().toISOString(),
-      clientes, remitos, proveedores, compras, movimientos, productos
+      clientes, remitos, proveedores, compras, movimientos, productos, socios_mov: sociosMov
     };
     const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
@@ -589,6 +619,7 @@ async function iniciarApp(){
   onSnapshot(collection(db,'proveedores'), snap=>{ proveedores=snap.docs.map(d=>({id:d.id,...d.data()})); renderProveedores(); actualizarBadges(); });
   onSnapshot(query(collection(db,'compras'),orderBy('fecha','desc')), snap=>{ compras=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); });
   onSnapshot(collection(db,'movimientos'), snap=>{ movimientos=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); renderHistorial(); if(tabActual==='cuentas') renderCC(); });
+  onSnapshot(collection(db,'socios_mov'), snap=>{ sociosMov=snap.docs.map(d=>({id:d.id,...d.data()})); if(tabActual==='socios') renderSocios(); });
   onSnapshot(doc(db,'config','productos'), snap=>{
     if(snap.exists()){ productos=(snap.data().lista)||[]; poblarSelectProductos(); if(tabActual==='productos') renderProductos(); }
     else { setDoc(doc(db,'config','productos'),{lista:PRODS}); }
@@ -597,16 +628,17 @@ async function iniciarApp(){
 
 window.showTab = function(t){
   if(t!==tabActual){ tabPrev=tabActual; tabActual=t; }
-  ['nuevo','compra','historial','cuentas','stats','clientes','proveedores','productos'].forEach((id,i)=>{
+  ['nuevo','compra','historial','cuentas','stats','clientes','proveedores','productos','socios'].forEach((id,i)=>{
     document.getElementById('tab-'+id).style.display='none';
     document.querySelectorAll('.tab')[i].classList.remove('active');
   });
   document.getElementById('tab-'+t).style.display='block';
-  document.querySelectorAll('.tab')[['nuevo','compra','historial','cuentas','stats','clientes','proveedores','productos'].indexOf(t)].classList.add('active');
+  document.querySelectorAll('.tab')[['nuevo','compra','historial','cuentas','stats','clientes','proveedores','productos','socios'].indexOf(t)].classList.add('active');
   if(t==='stats'){ poblarMeses(); renderStats(); }
   if(t==='historial') renderHistorial();
   if(t==='cuentas') renderCCSelector();
   if(t==='productos') renderProductos();
+  if(t==='socios') renderSocios();
 };
 
 window.toggleModo = function(){
@@ -1425,6 +1457,84 @@ window.imprimirListaPrecios = function(tipo){
     +'<div style="margin-top:14px;font-size:10px;color:#999">Precios sujetos a modificación sin previo aviso.</div>'
     +'</div>';
   document.body.appendChild(d);
+};
+
+
+function netoSocios(){
+  // positivo = Roque le debe a Miguel ; negativo = Miguel le debe a Roque
+  let net=0;
+  sociosMov.forEach(m=>{
+    const mitad=(m.monto||0)/2;
+    if(m.tipo==='gasto') net += (m.quien==='Miguel'? mitad : -mitad);
+    else if(m.tipo==='venta') net += (m.quien==='Miguel'? -mitad : mitad);
+    else if(m.tipo==='pago') net += (m.quien==='Miguel'? (m.monto||0) : -(m.monto||0));
+  });
+  return net;
+}
+
+function renderSocios(){
+  const est=document.getElementById('socios-estado');
+  const net=netoSocios();
+  if(est){
+    if(Math.abs(net)<1) est.innerHTML='<span style="color:#1a7f37">✔ Cuentas al día</span>';
+    else if(net>0) est.innerHTML='<span style="color:#c0392b">Roque le debe a Miguel '+fmt(net)+'</span>';
+    else est.innerHTML='<span style="color:#c0392b">Miguel le debe a Roque '+fmt(-net)+'</span>';
+  }
+  const wrap=document.getElementById('lista-socios');
+  if(!wrap) return;
+  if(!sociosMov.length){ wrap.innerHTML='<div class="empty">Sin movimientos.</div>'; return; }
+  const ord=sociosMov.slice().sort((a,b)=>(b.fecha||'').localeCompare(a.fecha||''));
+  wrap.innerHTML=ord.map(m=>{
+    const mitad=(m.monto||0)/2;
+    let efecto='';
+    if(m.tipo==='gasto') efecto=(m.quien==='Miguel'?'Roque debe ':'Miguel debe ')+fmt(mitad);
+    else if(m.tipo==='venta') efecto=(m.quien==='Miguel'?'Miguel debe ':'Roque debe ')+fmt(mitad);
+    else efecto='Liquidación';
+    const icono=m.tipo==='gasto'?'🛒':m.tipo==='venta'?'💵':'🤝';
+    const tipoTxt=m.tipo==='gasto'?'Gasto':m.tipo==='venta'?'Venta':'Pago';
+    return '<div class="card" style="padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:10px">'
+      +'<div><div style="font-weight:600">'+icono+' '+(m.concepto||tipoTxt)+'</div>'
+      +'<div style="font-size:12px;color:#888">'+(m.fecha?new Date(m.fecha+'T12:00').toLocaleDateString('es-AR'):'')+' · '+m.quien+' · '+tipoTxt+' '+fmt(m.monto)+'</div></div>'
+      +'<div style="text-align:right;white-space:nowrap"><div style="font-size:12px;color:#555">'+efecto+'</div>'
+      +'<button class="btn btn-danger btn-sm" style="margin-top:4px" onclick="eliminarMovSocio(\''+m.id+'\')">🗑</button></div>'
+      +'</div>';
+  }).join('');
+}
+
+window.agregarMovSocio = async function(){
+  const tipo=document.getElementById('soc-tipo').value;
+  const quien=document.getElementById('soc-quien').value;
+  const concepto=document.getElementById('soc-concepto').value.trim();
+  const monto=parseFloat(document.getElementById('soc-monto').value)||0;
+  if(monto<=0){ alert('Ingresá un monto válido.'); return; }
+  setSyncStatus(true);
+  try {
+    await addDoc(collection(db,'socios_mov'), {tipo,quien,concepto,monto,fecha:new Date().toISOString().slice(0,10),creadoEn:new Date().toISOString()});
+    document.getElementById('soc-concepto').value='';
+    document.getElementById('soc-monto').value='';
+  } catch(e){ alert('Error: '+e.message); }
+  setSyncStatus(false);
+};
+
+window.saldarCuentaSocios = async function(){
+  const net=netoSocios();
+  if(Math.abs(net)<1){ alert('La cuenta ya está al día.'); return; }
+  const quienPaga = net>0 ? 'Roque' : 'Miguel';
+  const quienCobra = net>0 ? 'Miguel' : 'Roque';
+  const monto=Math.round(Math.abs(net));
+  if(!confirm(quienPaga+' le paga '+fmt(monto)+' a '+quienCobra+'.\n\n¿Registrar la liquidación y dejar la cuenta en cero?')) return;
+  setSyncStatus(true);
+  try {
+    await addDoc(collection(db,'socios_mov'), {tipo:'pago',quien:quienPaga,concepto:'Liquidación de cuenta',monto,fecha:new Date().toISOString().slice(0,10),creadoEn:new Date().toISOString()});
+  } catch(e){ alert('Error: '+e.message); }
+  setSyncStatus(false);
+};
+
+window.eliminarMovSocio = async function(id){
+  if(!confirm('¿Borrar este movimiento de la cuenta entre socios?')) return;
+  setSyncStatus(true);
+  try { await deleteDoc(doc(db,'socios_mov',id)); } catch(e){ alert('Error: '+e.message); }
+  setSyncStatus(false);
 };
 
 </script>
