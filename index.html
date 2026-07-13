@@ -580,7 +580,9 @@ window.importarBackupOnline = async function(input){
       const totalP = (data.proveedores||[]).length;
       const totalCo = (data.compras||[]).length;
       const totalM = (data.movimientos||[]).length;
-      if(!confirm('Backup del '+(data.fecha?new Date(data.fecha).toLocaleDateString('es-AR'):'?')+'\n\nContenido:\n- '+totalR+' remitos\n- '+totalC+' clientes\n- '+totalP+' proveedores\n- '+totalCo+' compras\n- '+totalM+' movimientos\n\n¿Subir TODO a Firebase? Los IDs originales se van a preservar para que la cuenta corriente funcione correctamente.')) return;
+      const totalPr = (data.productos||[]).length;
+      const totalS = (data.socios_mov||[]).length;
+      if(!confirm('Backup del '+(data.fecha?new Date(data.fecha).toLocaleDateString('es-AR'):'?')+'\n\nContenido:\n- '+totalR+' remitos\n- '+totalC+' clientes\n- '+totalP+' proveedores\n- '+totalCo+' compras\n- '+totalM+' movimientos\n- '+totalPr+' productos\n- '+totalS+' mov. socios\n\n¿Subir TODO a Firebase? Los IDs originales se van a preservar para que la cuenta corriente funcione correctamente.')) return;
       setSyncStatus(true);
       let count = 0;
       // Usar setDoc con el ID original para preservar relaciones cliente-remito
@@ -607,6 +609,15 @@ window.importarBackupOnline = async function(input){
       for(const m of (data.movimientos||[])){
         const {id, ...rest} = m;
         await setDoc(doc(db,'movimientos',id), rest);
+        count++;
+      }
+      if(data.productos && data.productos.length){
+        await setDoc(doc(db,'config','productos'), {lista:data.productos});
+        count += data.productos.length;
+      }
+      for(const s of (data.socios_mov||[])){
+        const {id, ...rest} = s;
+        await setDoc(doc(db,'socios_mov',id), rest);
         count++;
       }
       setSyncStatus(false);
