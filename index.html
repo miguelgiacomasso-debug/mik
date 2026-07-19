@@ -651,7 +651,7 @@ async function iniciarApp(){
 
   // Escuchar cambios en tiempo real
   onSnapshot(collection(db,'clientes'), snap=>{ clientes=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); actualizarBadges(); });
-  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); renderClientes(); actualizarBadges(); poblarMeses(); if(tabActual==='cuentas') renderCC(); if(!editandoRemitoId) document.getElementById('inp-numero').value=proximoNumero(); });
+  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); poblarClientesHistorial(); renderHistorial(); renderClientes(); actualizarBadges(); poblarMeses(); if(tabActual==='cuentas') renderCC(); if(!editandoRemitoId) document.getElementById('inp-numero').value=proximoNumero(); });
   onSnapshot(collection(db,'proveedores'), snap=>{ proveedores=snap.docs.map(d=>({id:d.id,...d.data()})); renderProveedores(); actualizarBadges(); });
   onSnapshot(query(collection(db,'compras'),orderBy('fecha','desc')), snap=>{ compras=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); });
   onSnapshot(collection(db,'movimientos'), snap=>{ movimientos=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); renderHistorial(); if(tabActual==='cuentas') renderCC(); });
@@ -671,7 +671,7 @@ window.showTab = function(t){
   document.getElementById('tab-'+t).style.display='block';
   document.querySelectorAll('.tab')[['nuevo','compra','historial','cuentas','stats','clientes','proveedores','productos','socios'].indexOf(t)].classList.add('active');
   if(t==='stats'){ poblarMeses(); renderStats(); }
-  if(t==='historial') renderHistorial();
+  if(t==='historial'){ poblarClientesHistorial(); renderHistorial(); }
   if(t==='cuentas') renderCCSelector();
   if(t==='productos') renderProductos();
   if(t==='socios') renderSocios();
@@ -877,6 +877,17 @@ window.guardarCompra = async function(){
 };
 
 // HISTORIAL
+function poblarClientesHistorial(){
+  const selCli=document.getElementById('cliente-historial');
+  if(!selCli) return;
+  const prev=selCli.value;
+  const nombres=[...new Set(remitos.map(r=>(r.cliente&&r.cliente.nombre)||'').filter(n=>n))].sort((a,b)=>a.localeCompare(b));
+  const nuevo='<option value="">Todos los clientes</option>'+nombres.map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'">'+n+'</option>').join('');
+  if(selCli.innerHTML===nuevo) return;
+  selCli.innerHTML=nuevo;
+  if(prev && nombres.includes(prev)) selCli.value=prev;
+}
+
 function renderHistorial(){
   const filtro=document.getElementById('filtro-historial').value;
   const wrap=document.getElementById('lista-historial');
@@ -884,12 +895,6 @@ function renderHistorial(){
   if(filtro!=='compras') lista=lista.concat(remitos.map(r=>({...r,_t:'remito'})));
   if(filtro!=='remitos') lista=lista.concat(compras.map(c=>({...c,_t:'compra'})));
   const selCli=document.getElementById('cliente-historial');
-  if(selCli){
-    const prev=selCli.value;
-    const nombres=[...new Set(remitos.map(r=>(r.cliente&&r.cliente.nombre)||'').filter(n=>n))].sort((a,b)=>a.localeCompare(b));
-    selCli.innerHTML='<option value="">Todos los clientes</option>'+nombres.map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'">'+n+'</option>').join('');
-    if(prev) selCli.value=prev;
-  }
   const cliSel=selCli?selCli.value:'';
   if(cliSel){
     lista=lista.filter(x=> x._t==='remito' && ((x.cliente&&x.cliente.nombre)||'')===cliSel);
