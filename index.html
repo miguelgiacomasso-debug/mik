@@ -283,7 +283,14 @@ tr:last-child td { border-bottom:none; }
         <option value="remitos">Solo remitos</option>
         <option value="compras">Solo compras</option>
       </select>
+      <select id="orden-historial" onchange="renderHistorial()" style="width:auto;min-width:190px">
+        <option value="fecha">Ordenar por fecha (reciente)</option>
+        <option value="numero">Ordenar por N° remito</option>
+      </select>
+      <input type="text" id="buscar-historial" placeholder="🔍 Buscar cliente por nombre o apellido..." oninput="renderHistorial()" style="flex:1;min-width:220px">
+      <button class="btn btn-sm" onclick="document.getElementById('buscar-historial').value='';renderHistorial()">Limpiar</button>
     </div>
+    <div id="resumen-busqueda" style="margin-bottom:10px"></div>
     <div id="lista-historial"><div class="empty">Cargando...</div></div>
   </div>
 
@@ -873,7 +880,34 @@ function renderHistorial(){
   let lista=[];
   if(filtro!=='compras') lista=lista.concat(remitos.map(r=>({...r,_t:'remito'})));
   if(filtro!=='remitos') lista=lista.concat(compras.map(c=>({...c,_t:'compra'})));
-  lista.sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  const busq=(document.getElementById('buscar-historial')?.value||'').trim().toLowerCase();
+  if(busq){
+    lista=lista.filter(x=>{
+      const nom = x._t==='remito' ? (x.cliente&&x.cliente.nombre)||'' : (x.proveedor&&x.proveedor.nombre)||'';
+      return nom.toLowerCase().includes(busq);
+    });
+  }
+  const resEl=document.getElementById('resumen-busqueda');
+  if(resEl){
+    if(busq && lista.length){
+      let tot=0, pend=0;
+      const pm=calcPendientes();
+      lista.forEach(x=>{ if(x._t==='remito'){ tot+=x.total||0; pend+=(pm[x.id]!=null?pm[x.id]:(x.total-(x.pagado||0))); } });
+      resEl.innerHTML='<div class="card" style="padding:10px 14px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px">'
+        +'<div><b>'+lista.length+'</b> registro(s) que coinciden con "'+busq+'"</div>'
+        +'<div>Total: <b>'+fmt(tot)+'</b> · Pendiente: <b style="color:'+(pend>0?'#c0392b':'#1a7f37')+'">'+fmt(pend)+'</b></div></div>';
+    } else if(busq){
+      resEl.innerHTML='<div class="empty">Sin resultados para "'+busq+'"</div>';
+    } else resEl.innerHTML='';
+  }
+  const ordEl=document.getElementById('orden-historial');
+  const orden=ordEl?ordEl.value:'fecha';
+  if(orden==='numero'){
+    const numOf=x=>{ const n=parseInt(String(x.numero||'').replace(/[^0-9]/g,'')); return isNaN(n)?-1:n; };
+    lista.sort((a,b)=>numOf(b)-numOf(a));
+  } else {
+    lista.sort((a,b)=>b.fecha.localeCompare(a.fecha));
+  }
   if(!lista.length){ wrap.innerHTML='<div class="empty">No hay registros.</div>'; return; }
   const pendMap=calcPendientes();
   wrap.innerHTML=lista.map(reg=>{
