@@ -527,6 +527,7 @@ let clientes=[], remitos=[], proveedores=[], compras=[], movimientos=[], product
 let items=[], itemsCompra=[], editandoRemitoId=null, tabActual='nuevo', tabPrev='nuevo';
 
 const fmt = n=>'$'+Math.round(n).toLocaleString('es-AR');
+const proximoNumero = ()=>{ let mx=0; remitos.forEach(r=>{ const n=parseInt(String(r.numero||'').replace(/[^0-9]/g,'')); if(!isNaN(n)&&n>mx) mx=n; }); return String(mx+1).padStart(3,'0'); };
 const fmtc = n=>{ const r=Math.round(n*100)/100; const dec=(r%1!==0); return '$'+r.toLocaleString('es-AR',{minimumFractionDigits:dec?2:0,maximumFractionDigits:2}); };
 const pct = n=>Math.round(n*100)+'%';
 const mesKey = f=>f.substring(0,7);
@@ -640,7 +641,7 @@ async function iniciarApp(){
 
   // Escuchar cambios en tiempo real
   onSnapshot(collection(db,'clientes'), snap=>{ clientes=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); actualizarBadges(); });
-  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); renderClientes(); actualizarBadges(); poblarMeses(); if(tabActual==='cuentas') renderCC(); if(!editandoRemitoId) document.getElementById('inp-numero').value=String(remitos.length+1).padStart(3,'0'); });
+  onSnapshot(query(collection(db,'remitos'),orderBy('fecha','desc')), snap=>{ remitos=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); renderClientes(); actualizarBadges(); poblarMeses(); if(tabActual==='cuentas') renderCC(); if(!editandoRemitoId) document.getElementById('inp-numero').value=proximoNumero(); });
   onSnapshot(collection(db,'proveedores'), snap=>{ proveedores=snap.docs.map(d=>({id:d.id,...d.data()})); renderProveedores(); actualizarBadges(); });
   onSnapshot(query(collection(db,'compras'),orderBy('fecha','desc')), snap=>{ compras=snap.docs.map(d=>({id:d.id,...d.data()})); renderHistorial(); actualizarBadges(); poblarMeses(); });
   onSnapshot(collection(db,'movimientos'), snap=>{ movimientos=snap.docs.map(d=>({id:d.id,...d.data()})); renderClientes(); renderHistorial(); if(tabActual==='cuentas') renderCC(); });
@@ -744,7 +745,7 @@ function renderItems(){
   document.getElementById('util-val').textContent=utilKnown?fmt(util):'—';
 }
 
-window.limpiarRemito = function(){ items=[]; renderItems(); if(editandoRemitoId){ editandoRemitoId=null; quitarBannerEdicion(); document.getElementById('inp-numero').value=String(remitos.length+1).padStart(3,'0'); } };
+window.limpiarRemito = function(){ items=[]; renderItems(); if(editandoRemitoId){ editandoRemitoId=null; quitarBannerEdicion(); document.getElementById('inp-numero').value=proximoNumero(); } };
 
 function calcTotal(){ return items.reduce((s,it)=>s+it.precio*it.qty,0); }
 
@@ -1316,7 +1317,7 @@ window.cancelarEdicion = function(){
   items = [];
   renderItems();
   quitarBannerEdicion();
-  document.getElementById('inp-numero').value = String(remitos.length+1).padStart(3,'0');
+  document.getElementById('inp-numero').value = proximoNumero();
   showTab('historial');
 };
 
