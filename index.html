@@ -104,6 +104,7 @@ tr:last-child td { border-bottom:none; }
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
       <div style="font-size:11px;color:#aaa" id="fecha-hoy"></div>
       <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:12px;color:#888;background:#eee;padding:2px 8px;border-radius:10px" title="Versión del programa">v30</span>
         <span id="sync-status" class="sync-indicator sync-ok">● Online</span>
         <span style="font-size:12px;color:#888" id="usuario-actual"></span>
         <button class="btn btn-sm" onclick="navVolver()" title="Volver un paso atrás">← Volver</button>
@@ -287,11 +288,10 @@ tr:last-child td { border-bottom:none; }
         <option value="numero">Ordenar por N° remito</option>
         <option value="fecha">Ordenar por fecha (reciente)</option>
       </select>
-      <select id="cliente-historial" onchange="renderHistorial()" style="width:auto;min-width:220px">
+      <select id="cliente-historial" onchange="setClienteHist(this.value)" style="width:auto;min-width:220px">
         <option value="">Todos los clientes</option>
       </select>
-      <input type="text" id="buscar-historial" placeholder="🔍 o escribí un apellido..." oninput="renderHistorial()" style="flex:1;min-width:180px">
-      <button class="btn btn-sm" onclick="document.getElementById('buscar-historial').value='';document.getElementById('cliente-historial').value='';renderHistorial()">Limpiar</button>
+      <button class="btn btn-sm" onclick="setClienteHist('')">Ver todos</button>
     </div>
     <div id="resumen-busqueda" style="margin-bottom:10px"></div>
     <div id="lista-historial"><div class="empty">Cargando...</div></div>
@@ -877,15 +877,21 @@ window.guardarCompra = async function(){
 };
 
 // HISTORIAL
+let filtroCliHist='';
+window.setClienteHist = function(v){
+  filtroCliHist = v||'';
+  const s=document.getElementById('cliente-historial');
+  if(s) s.value=filtroCliHist;
+  renderHistorial();
+};
 function poblarClientesHistorial(){
   const selCli=document.getElementById('cliente-historial');
   if(!selCli) return;
-  const prev=selCli.value;
   const nombres=[...new Set(remitos.map(r=>(r.cliente&&r.cliente.nombre)||'').filter(n=>n))].sort((a,b)=>a.localeCompare(b));
   const nuevo='<option value="">Todos los clientes</option>'+nombres.map(n=>'<option value="'+n.replace(/"/g,'&quot;')+'">'+n+'</option>').join('');
-  if(selCli.innerHTML===nuevo) return;
-  selCli.innerHTML=nuevo;
-  if(prev && nombres.includes(prev)) selCli.value=prev;
+  if(selCli.innerHTML!==nuevo) selCli.innerHTML=nuevo;
+  selCli.value = (filtroCliHist && nombres.includes(filtroCliHist)) ? filtroCliHist : '';
+  if(selCli.value!==filtroCliHist) filtroCliHist=selCli.value;
 }
 
 function renderHistorial(){
@@ -894,21 +900,14 @@ function renderHistorial(){
   let lista=[];
   if(filtro!=='compras') lista=lista.concat(remitos.map(r=>({...r,_t:'remito'})));
   if(filtro!=='remitos') lista=lista.concat(compras.map(c=>({...c,_t:'compra'})));
-  const selCli=document.getElementById('cliente-historial');
-  const cliSel=selCli?selCli.value:'';
+  poblarClientesHistorial();
+  const cliSel=filtroCliHist;
   if(cliSel){
     lista=lista.filter(x=> x._t==='remito' && ((x.cliente&&x.cliente.nombre)||'')===cliSel);
   }
-  const busq=(document.getElementById('buscar-historial')?.value||'').trim().toLowerCase();
-  if(busq){
-    lista=lista.filter(x=>{
-      const nom = x._t==='remito' ? (x.cliente&&x.cliente.nombre)||'' : (x.proveedor&&x.proveedor.nombre)||'';
-      return nom.toLowerCase().includes(busq);
-    });
-  }
   const resEl=document.getElementById('resumen-busqueda');
   if(resEl){
-    const etiqueta = cliSel || busq;
+    const etiqueta = cliSel;
     if(etiqueta && lista.length){
       let tot=0, pend=0;
       const pm=calcPendientes();
