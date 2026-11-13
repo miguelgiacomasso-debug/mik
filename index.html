@@ -104,7 +104,7 @@ tr:last-child td { border-bottom:none; }
     <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
       <div style="font-size:11px;color:#aaa" id="fecha-hoy"></div>
       <div style="display:flex;gap:6px;align-items:center">
-        <span style="font-size:12px;color:#888;background:#eee;padding:2px 8px;border-radius:10px" title="Versión del programa">v30</span>
+        <span style="font-size:12px;color:#888;background:#eee;padding:2px 8px;border-radius:10px" title="Versión del programa">v31</span>
         <span id="sync-status" class="sync-indicator sync-ok">● Online</span>
         <span style="font-size:12px;color:#888" id="usuario-actual"></span>
         <button class="btn btn-sm" onclick="navVolver()" title="Volver un paso atrás">← Volver</button>
@@ -362,7 +362,8 @@ tr:last-child td { border-bottom:none; }
     <div class="card">
       <div class="sec">Agregar / editar producto</div>
       <input type="hidden" id="pm-idx" value="-1">
-      <div class="grid2" style="margin-bottom:8px">
+      <div class="grid3" style="margin-bottom:8px">
+        <div><div class="label">Código (opcional)</div><input type="text" id="pm-codigo" placeholder="Ej: BAS-01"></div>
         <div><div class="label">Nombre del producto</div><input type="text" id="pm-nombre" placeholder="Ej: Columna de dirección 20mm"></div>
         <div><div class="label">Costo MIK ($)</div><input type="number" id="pm-costo" placeholder="Ej: 17587"></div>
       </div>
@@ -379,7 +380,7 @@ tr:last-child td { border-bottom:none; }
 
     <div class="card" style="margin-bottom:1rem">
       <div class="sec">Carga masiva (pegar lista)</div>
-      <div class="hint" style="margin-bottom:8px">Una línea por producto con: <b>Nombre ; Costo ; Precio venta</b>. También sirve pegar 3 columnas desde Excel. Los productos con el mismo nombre se actualizan; los nuevos se agregan.</div>
+      <div class="hint" style="margin-bottom:8px">Una línea por producto: <b>Nombre ; Costo ; Precio ; Desc%</b> &nbsp;—&nbsp; o con código: <b>Código ; Nombre ; Costo ; Precio ; Desc%</b>. Si la línea trae código, actualiza por código (aunque cambie el nombre); si no, por nombre. Los nuevos se agregan.</div>
       <textarea id="pm-bulk" rows="6" style="width:100%;font-family:monospace;font-size:12px" placeholder="COLUMNA DE DIRECCION 20mm ; 17587 ; 58000&#10;BUTACA FIBRA ; 45000 ; 85000"></textarea>
       <div style="margin-top:8px"><button class="btn btn-primary" onclick="cargaMasivaProductos()">Cargar lista</button></div>
     </div>
@@ -1397,6 +1398,7 @@ function asegurarProductos(){ if(productos.length===0 && PRODS.length) productos
 
 window.limpiarFormProducto = function(){
   document.getElementById('pm-idx').value='-1';
+  document.getElementById('pm-codigo').value='';
   document.getElementById('pm-nombre').value='';
   document.getElementById('pm-costo').value='';
   document.getElementById('pm-venta').value='';
@@ -1405,6 +1407,7 @@ window.limpiarFormProducto = function(){
 };
 
 window.guardarProducto = async function(){
+  const cod=document.getElementById('pm-codigo').value.trim();
   const nombre=document.getElementById('pm-nombre').value.trim();
   const costo=parseInt(document.getElementById('pm-costo').value)||0;
   const venta=parseInt(document.getElementById('pm-venta').value)||0;
@@ -1414,12 +1417,15 @@ window.guardarProducto = async function(){
   if(!nombre){ alert('Escribí el nombre del producto.'); return; }
   if(venta<=0){ alert('Ingresá un precio de venta válido.'); return; }
   asegurarProductos();
+  const obj={n:nombre,p:venta,c:costo,rev,cod};
   if(idx>=0){
-    productos[idx]={n:nombre,p:venta,c:costo,rev};
+    productos[idx]=obj;
   } else {
-    const ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
-    if(ya>=0){ if(!confirm('Ya existe "'+nombre+'". ¿Actualizar su precio?')) return; productos[ya]={n:nombre,p:venta,c:costo,rev}; }
-    else productos.push({n:nombre,p:venta,c:costo,rev});
+    let ya=-1;
+    if(cod) ya=productos.findIndex(x=>(x.cod||'').toLowerCase()===cod.toLowerCase());
+    if(ya<0) ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
+    if(ya>=0){ if(!confirm('Ya existe "'+(productos[ya].n)+'". ¿Actualizar ese producto?')) return; productos[ya]=obj; }
+    else productos.push(obj);
   }
   await persistProductos();
   limpiarFormProducto();
@@ -1430,6 +1436,7 @@ window.editarProductoUI = function(i){
   asegurarProductos();
   const p=productos[i]; if(!p) return;
   document.getElementById('pm-idx').value=i;
+  document.getElementById('pm-codigo').value=p.cod||'';
   document.getElementById('pm-nombre').value=p.n;
   document.getElementById('pm-costo').value=p.c||0;
   document.getElementById('pm-venta').value=p.p||0;
@@ -1458,16 +1465,31 @@ window.cargaMasivaProductos = async function(){
     if(linea.indexOf('\t')>=0) partes=linea.split('\t');
     else if(linea.indexOf(';')>=0) partes=linea.split(';');
     else partes=linea.split(',');
-    if(partes.length<3){ errores++; return; }
-    const nombre=partes[0].trim();
-    const costo=parseInt(String(partes[1]).replace(/[^0-9]/g,''))||0;
-    const venta=parseInt(String(partes[2]).replace(/[^0-9]/g,''))||0;
-    let rev=null;
-    if(partes.length>=4){ const dd=parseFloat(String(partes[3]).replace(/[^0-9.]/g,'')); if(!isNaN(dd)) rev=dd/100; }
+    partes=partes.map(x=>x.trim());
+    // Detectar si la línea trae código al principio:
+    // formato CON código: Codigo ; Nombre ; Costo ; Precio [; Desc]  (>=4 partes y la 3ra es numérica)
+    // formato SIN código: Nombre ; Costo ; Precio [; Desc]
+    const esNum=s=>/[0-9]/.test(String(s)) && !/[a-zA-Z]/.test(String(s).replace(/[^0-9a-zA-Z]/g,''));
+    let cod='', nombre, costo, venta, rev=null;
+    if(partes.length>=4 && esNum(partes[2]) && esNum(partes[3]) && !esNum(partes[1])){
+      // tiene código: col0=codigo col1=nombre col2=costo col3=precio col4=desc
+      cod=partes[0]; nombre=partes[1];
+      costo=parseInt(String(partes[2]).replace(/[^0-9]/g,''))||0;
+      venta=parseInt(String(partes[3]).replace(/[^0-9]/g,''))||0;
+      if(partes.length>=5){ const dd=parseFloat(String(partes[4]).replace(/[^0-9.]/g,'')); if(!isNaN(dd)) rev=dd/100; }
+    } else {
+      if(partes.length<3){ errores++; return; }
+      nombre=partes[0];
+      costo=parseInt(String(partes[1]).replace(/[^0-9]/g,''))||0;
+      venta=parseInt(String(partes[2]).replace(/[^0-9]/g,''))||0;
+      if(partes.length>=4){ const dd=parseFloat(String(partes[3]).replace(/[^0-9.]/g,'')); if(!isNaN(dd)) rev=dd/100; }
+    }
     if(!nombre || venta<=0){ errores++; return; }
-    const ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
-    if(ya>=0){ const pr=productos[ya]; productos[ya]={n:nombre,p:venta,c:costo,rev: rev!=null?rev:(pr.rev!=null?pr.rev:0.25)}; actualizados++; }
-    else { productos.push({n:nombre,p:venta,c:costo,rev: rev!=null?rev:0.25}); nuevos++; }
+    let ya=-1;
+    if(cod) ya=productos.findIndex(x=>(x.cod||'').toLowerCase()===cod.toLowerCase());
+    if(ya<0) ya=productos.findIndex(x=>x.n.toLowerCase()===nombre.toLowerCase());
+    if(ya>=0){ const pr=productos[ya]; productos[ya]={n:nombre,p:venta,c:costo,rev: rev!=null?rev:(pr.rev!=null?pr.rev:0.25),cod: cod||pr.cod||''}; actualizados++; }
+    else { productos.push({n:nombre,p:venta,c:costo,rev: rev!=null?rev:0.25,cod}); nuevos++; }
   });
   await persistProductos();
   document.getElementById('pm-bulk').value='';
@@ -1480,14 +1502,21 @@ function renderProductos(){
   if(!wrap) return;
   const base = (productos && productos.length) ? productos : PRODS;
   if(!base.length){ wrap.innerHTML='<div class="empty">No hay productos cargados.</div>'; return; }
-  const conIdx = base.map((p,i)=>({p,i})).sort((a,b)=>a.p.n.localeCompare(b.p.n));
+  const conIdx = base.map((p,i)=>({p,i})).sort((a,b)=>{
+    const ca=(a.p.cod||'').trim(), cb=(b.p.cod||'').trim();
+    if(ca&&cb) return ca.localeCompare(cb,undefined,{numeric:true});
+    if(ca&&!cb) return -1;
+    if(!ca&&cb) return 1;
+    return a.p.n.localeCompare(b.p.n);
+  });
   wrap.innerHTML='<div style="margin-bottom:8px;color:#888;font-size:13px">'+base.length+' productos</div>'
-    +'<table><thead><tr><th>Producto</th><th>Costo</th><th>Venta (piloto)</th><th>Reventa</th><th>Desc.</th><th>Margen</th><th></th></tr></thead><tbody>'
+    +'<table><thead><tr><th>Código</th><th>Producto</th><th>Costo</th><th>Venta (piloto)</th><th>Reventa</th><th>Desc.</th><th>Margen</th><th></th></tr></thead><tbody>'
     +conIdx.map(({p,i})=>{
       const rev=precioReventa(p);
       const dpc=Math.round(revPct(p)*100);
       const margen=(p.c&&p.p)?Math.round((1-p.c/p.p)*100):null;
       return '<tr>'
+        +'<td style="font-weight:600;color:#555">'+(p.cod||'—')+'</td>'
         +'<td>'+p.n+'</td>'
         +'<td>'+(p.c?fmt(p.c):'—')+'</td>'
         +'<td style="font-weight:700">'+fmt(p.p)+'</td>'
